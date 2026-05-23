@@ -1,0 +1,93 @@
+service: snap-kakeibo-backend
+
+frameworkVersion: '3'
+
+provider:
+  name: aws
+  runtime: python3.12
+  region: ap-northeast-1  # 東京リージョン
+  stage: dev
+  environment:
+    DYNAMODB_TABLE: ${self:service}-transactions-${self:provider.stage}
+    S3_BUCKET: ${self:service}-receipts-${self:provider.stage}
+    AWS_NODEJS_CONNECTION_REUSE_ENABLED: "1"
+  iam:
+    role:
+      statements:
+        # S3バケットへの読み書き権限
+        - Effect: Allow
+          Action:
+            - s3:PutObject
+            - s3:GetObject
+            - s3:DeleteObject
+          Resource:
+            - arn:aws:s3:::${self:provider.environment.S3_BUCKET}
+            - arn:aws:s3:::${self:provider.environment.S3_BUCKET}/*
+        # DynamoDBテーブルへのアクセス権限
+        - Effect: Allow
+          Action:
+            - dynamodb:Query
+            - dynamodb:Scan
+            - dynamodb:GetItem
+            - dynamodb:PutItem
+            - dynamodb:UpdateItem
+            - dynamodb:DeleteItem
+          Resource:
+            - arn:aws:dynamodb:${self:provider.region}:*:table/${self:provider.environment.DYNAMODB_TABLE}
+            - arn:aws:dynamodb:${self:provider.region}:*:table/${self:provider.environment.DYNAMODB_TABLE}/index/*
+        # Amazon Bedrock (Nova Lite) の呼び出し権限
+        - Effect: Allow
+          Action:
+            - bedrock:InvokeModel
+            - bedrock:Converse
+          Resource:
+            - arn:aws:bedrock:${self:provider.region}::foundation-model/amazon.nova-lite-v1:0
+
+functions:
+  api:
+    handler: main.handler
+    url: true # Lambda Function URLs を有効化 (API Gateway代わりの直通HTTPSエンドポイント)
+    timeout: 30 # Bedrock解析の待機を考慮して30秒に設定
+    memorySize: 512
+
+plugins:
+  - serverless-python-requirements
+
+custom:
+  pythonRequirements:
+    dockerizePip: true # ライブラリをバイナリ互換のLinux環境向けにクロスビルド
+
+resources:
+  Resources:
+    # 1. 画像保存用のS3バケット
+    ReceiptsBucket:
+      Type: AWS::S3::Bucket
+      Properties:
+        BucketName: ${self:provider.environment.S3_BUCKET}
+        CorsConfiguration:
+          CorsRules:
+            - AllowedHeaders:
+                - '*'
+              AllowedMethods:
+                - PUT
+                - GET
+              AllowedOrigins:
+                - '*' # 開発用にすべて許可。本番時はCloudFrontドメインに制限
+              MaxAge: 3000
+
+    # 2. 取引明細保存用のDynamoDBテーブル
+    TransactionsTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: ${self:provider.environment.DYNAMODB_TABLE}
+        AttributeDefinitions:
+          - AttributeName: PK
+            AttributeType: S
+          - AttributeName: SK
+            AttributeType: S
+        KeySchema:
+          - AttributeName: PK
+            KeyType: HASH
+          - AttributeName: SK
+            KeyType: RANGE
+        BillingMode: PAY_PER_REQUEST # オンデマンド (完全従量制・無料枠あり)

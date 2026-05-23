@@ -1,0 +1,37 @@
+version: '3.8'
+
+services:
+  # 🐍 Python FastAPI バックエンド
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend:/app
+      # ホストPCの AWS 認証情報をコンテナ内にマウントし、Bedrock や S3 に安全にアクセス可能にします
+      - ~/.aws:/root/.aws:ro
+    environment:
+      - AWS_PROFILE=${AWS_PROFILE:-default}  # ホストPCのプロファイルを選択可能 (デフォルトは default)
+      - AWS_REGION=ap-northeast-1            # 東京リージョン
+      - DYNAMODB_TABLE=snap-kakeibo-backend-transactions-dev
+      - S3_BUCKET=snap-kakeibo-backend-receipts-dev
+    restart: always
+
+  # ⚛️ React (Vite) フロントエンド
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./frontend:/app
+      # node_modules をホスト側と同期させず、コンテナ側でクローズドに保持するためのボリューム設定
+      - /app/node_modules
+    environment:
+      - VITE_API_URL=http://localhost:8000
+    depends_on:
+      - backend
+    restart: always
