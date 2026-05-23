@@ -119,7 +119,9 @@ export default function App() {
   });
 
   // API設定
-  const [apiUrl, setApiUrl] = useState(() => localStorage.getItem('snap_kakeibo_api_url') || '');
+  const [apiUrl, setApiUrl] = useState(
+    () => localStorage.getItem('snap_kakeibo_api_url') || 'http://localhost:8000'
+  );
   const [geminiApiKey, setGeminiApiKey] = useState(
     () => localStorage.getItem('snap_kakeibo_gemini_key') || ''
   );
@@ -145,6 +147,35 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem('snap_kakeibo_transactions', JSON.stringify(transactions));
   }, [transactions]);
+
+  // 起動時およびapiUrl変更時にAPIから明細データを同期する
+  useEffect(() => {
+    const fetchTransactions = async () => {
+      if (!apiUrl) return;
+      try {
+        const response = await fetch(`${apiUrl}/api/transactions`);
+        if (response.ok) {
+          const data = await response.json();
+          // APIから取得したデータをマッピングして格納 (DynamoDBのSKをidとして使用)
+          const mappedData = data.map((item: any) => ({
+            id: item.SK,
+            transaction_date: item.transaction_date,
+            shop_name: item.shop_name,
+            total_amount: item.total_amount,
+            category_name: item.category_name,
+            items: item.items || [],
+            memo: item.memo || '',
+            created_at: item.created_at || new Date().toISOString(),
+          }));
+          setTransactions(mappedData);
+        }
+      } catch (err) {
+        console.error('APIからの取引履歴の取得に失敗しました:', err);
+      }
+    };
+
+    fetchTransactions();
+  }, [apiUrl]);
 
   // SVGグラデーションを定義するために一度だけ描画するコンポーネント用
   const GradientDefs = () => (
@@ -388,6 +419,11 @@ export default function App() {
           }),
         });
         if (!response.ok) throw new Error('サーバーへの保存に失敗しました');
+        const resData = await response.json();
+        // サーバーが返した本物のDynamoDB SKをセットする
+        if (resData.transaction_id) {
+          newTx.id = resData.transaction_id;
+        }
       } catch (err: any) {
         console.warn('サーバー保存エラー。ローカルのみに保存します:', err);
       }
@@ -408,7 +444,8 @@ export default function App() {
 
     if (apiUrl) {
       try {
-        await fetch(`${apiUrl}/api/transactions/${id}`, {
+        // キーに含まれる「#」を安全に転送するためにURLエンコードする
+        await fetch(`${apiUrl}/api/transactions/${encodeURIComponent(id)}`, {
           method: 'DELETE',
         });
       } catch (err) {
