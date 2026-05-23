@@ -305,6 +305,47 @@ export default function App() {
     }, 800);
   };
 
+  // 品目の更新と合計金額の自動計算
+  const updateItemsAndTotal = (updatedItems: ReceiptItem[]) => {
+    if (!editData) return;
+    const newTotal = updatedItems.reduce((acc, item) => acc + (item.price * item.qty), 0);
+    setEditData({
+      ...editData,
+      items: updatedItems,
+      total_amount: newTotal
+    });
+  };
+
+  // 個別の品目フィールドの編集
+  const handleItemChange = (index: number, field: keyof ReceiptItem, value: any) => {
+    if (!editData || !editData.items) return;
+    const updatedItems = [...editData.items];
+    
+    if (field === 'price') {
+      updatedItems[index] = { ...updatedItems[index], price: parseInt(value) || 0 };
+    } else if (field === 'qty') {
+      updatedItems[index] = { ...updatedItems[index], qty: parseInt(value) || 1 };
+    } else {
+      updatedItems[index] = { ...updatedItems[index], [field]: value };
+    }
+    
+    updateItemsAndTotal(updatedItems);
+  };
+
+  // 品目の新規追加
+  const handleAddItem = () => {
+    if (!editData) return;
+    const updatedItems = [...(editData.items || []), { name: '', price: 0, qty: 1 }];
+    updateItemsAndTotal(updatedItems);
+  };
+
+  // 品目の削除
+  const handleRemoveItem = (index: number) => {
+    if (!editData || !editData.items) return;
+    const updatedItems = editData.items.filter((_, i) => i !== index);
+    updateItemsAndTotal(updatedItems);
+  };
+
   // 解析結果の確定保存
   const handleSaveTransaction = async () => {
     if (!editData) return;
@@ -672,24 +713,149 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* 品目リスト */}
-                <div style={{ margin: '16px 0' }}>
-                  <label style={{ fontSize: '13px', color: 'var(--text-secondary)', display: 'block', marginBottom: '8px', fontWeight: 500 }}>
-                    購入品目内訳
-                  </label>
-                  {editData.items && editData.items.map((item, idx) => (
-                    <div className="item-row" key={idx}>
-                      <span style={{ fontSize: '14px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                        {item.name}
-                      </span>
-                      <span className="numeric" style={{ textAlign: 'right', fontSize: '14px' }}>
-                        ¥{item.price.toLocaleString()}
-                      </span>
-                      <span className="numeric" style={{ color: 'var(--text-secondary)', textAlign: 'center', fontSize: '14px' }}>
-                        x{item.qty}
-                      </span>
-                    </div>
-                  ))}
+                 {/* 品目リスト (インライン編集・追加・削除機能付き) */}
+                <div style={{ margin: '20px 0' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                    <label style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: 600 }}>
+                      購入品目内訳（手動編集・追加・削除可能）
+                    </label>
+                    <button
+                      type="button"
+                      onClick={handleAddItem}
+                      style={{
+                        background: 'rgba(139, 92, 246, 0.1)',
+                        border: '1px solid rgba(139, 92, 246, 0.25)',
+                        borderRadius: '20px',
+                        color: '#a78bfa',
+                        padding: '4px 10px',
+                        fontSize: '11px',
+                        fontWeight: 600,
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '4px',
+                        transition: 'all 0.2s'
+                      }}
+                      onMouseEnter={e => { e.currentTarget.style.background = 'rgba(139, 92, 246, 0.2)'; }}
+                      onMouseLeave={e => { e.currentTarget.style.background = 'rgba(139, 92, 246, 0.1)'; }}
+                    >
+                      <Plus size={12} />
+                      品目を追加
+                    </button>
+                  </div>
+
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    {editData.items && editData.items.map((item, idx) => (
+                      <div key={idx} style={{ 
+                        display: 'flex', 
+                        gap: '8px', 
+                        alignItems: 'center',
+                        background: 'rgba(255, 255, 255, 0.02)',
+                        padding: '8px',
+                        borderRadius: '12px',
+                        border: '1px solid rgba(255, 255, 255, 0.03)'
+                      }}>
+                        {/* 品目名入力 */}
+                        <input
+                          type="text"
+                          placeholder="品目名（例：牛乳）"
+                          value={item.name}
+                          onChange={e => handleItemChange(idx, 'name', e.target.value)}
+                          style={{
+                            flex: 3,
+                            background: 'rgba(255,255,255,0.03)',
+                            border: '1px solid rgba(255,255,255,0.06)',
+                            borderRadius: '8px',
+                            color: '#fff',
+                            padding: '6px 10px',
+                            fontSize: '13px',
+                            outline: 'none',
+                          }}
+                        />
+
+                        {/* 単価入力 */}
+                        <div style={{ flex: 1.5, display: 'flex', alignItems: 'center', gap: '2px', position: 'relative' }}>
+                          <span style={{ fontSize: '11px', color: 'var(--text-muted)', position: 'absolute', left: '8px' }}>¥</span>
+                          <input
+                            type="number"
+                            placeholder="単価"
+                            value={item.price || ''}
+                            onChange={e => handleItemChange(idx, 'price', e.target.value)}
+                            style={{
+                              width: '100%',
+                              background: 'rgba(255,255,255,0.03)',
+                              border: '1px solid rgba(255,255,255,0.06)',
+                              borderRadius: '8px',
+                              color: '#fff',
+                              padding: '6px 6px 6px 18px',
+                              fontSize: '13px',
+                              outline: 'none',
+                              textAlign: 'right',
+                            }}
+                          />
+                        </div>
+
+                        {/* 数量入力 */}
+                        <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: '2px', position: 'relative' }}>
+                          <span style={{ fontSize: '11px', color: 'var(--text-muted)', position: 'absolute', left: '6px' }}>x</span>
+                          <input
+                            type="number"
+                            min="1"
+                            placeholder="数"
+                            value={item.qty || ''}
+                            onChange={e => handleItemChange(idx, 'qty', e.target.value)}
+                            style={{
+                              width: '100%',
+                              background: 'rgba(255,255,255,0.03)',
+                              border: '1px solid rgba(255,255,255,0.06)',
+                              borderRadius: '8px',
+                              color: '#fff',
+                              padding: '6px 6px 6px 16px',
+                              fontSize: '13px',
+                              outline: 'none',
+                              textAlign: 'center',
+                            }}
+                          />
+                        </div>
+
+                        {/* 削除ボタン */}
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveItem(idx)}
+                          style={{
+                            background: 'rgba(239, 68, 68, 0.1)',
+                            border: '1px solid rgba(239, 68, 68, 0.2)',
+                            borderRadius: '50%',
+                            width: '28px',
+                            height: '28px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            color: '#f87171',
+                            cursor: 'pointer',
+                            transition: 'all 0.2s',
+                            flexShrink: 0
+                          }}
+                          onMouseEnter={e => { 
+                            e.currentTarget.style.background = 'rgba(239, 68, 68, 0.2)'; 
+                            e.currentTarget.style.color = '#ef4444';
+                          }}
+                          onMouseLeave={e => { 
+                            e.currentTarget.style.background = 'rgba(239, 68, 68, 0.1)'; 
+                            e.currentTarget.style.color = '#f87171';
+                          }}
+                        >
+                          <X size={14} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+
+                  {editData.items && editData.items.length === 0 && (
+                    <p style={{ fontSize: '12px', color: 'var(--text-muted)', textAlign: 'center', padding: '12px 0' }}>
+                      品目がありません。「品目を追加」から登録してください。
+                    </p>
+                  )}
                 </div>
 
                 <div className="form-group" style={{ marginTop: '20px' }}>
