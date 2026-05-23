@@ -36,11 +36,12 @@ interface ReceiptItem {
 
 interface Transaction {
   id: string;
-  transaction_date: str;
+  transaction_date: string;
   shop_name: string;
   total_amount: number;
   category_name: string;
   items: ReceiptItem[];
+  receipt_s3_key?: string;
   memo?: string;
   created_at: string;
 }
