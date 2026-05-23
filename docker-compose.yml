@@ -17,6 +17,9 @@ services:
       - AWS_REGION=ap-northeast-1            # 東京リージョン
       - DYNAMODB_TABLE=snap-kakeibo-backend-transactions-dev
       - S3_BUCKET=snap-kakeibo-backend-receipts-dev
+      - DYNAMODB_ENDPOINT_URL=http://dynamodb-local:8000
+    depends_on:
+      - dynamodb-local
     restart: always
 
   # ⚛️ React (Vite) フロントエンド
@@ -34,4 +37,25 @@ services:
       - VITE_API_URL=http://localhost:8000
     depends_on:
       - backend
+    restart: always
+
+  # 💾 ローカル用 DynamoDB (AWS公式エミュレータ)
+  dynamodb-local:
+    image: amazon/dynamodb-local:latest
+    container_name: snap-kakeibo-dynamodb-local
+    ports:
+      - "8008:8000"
+    command: "-jar DynamoDBLocal.jar -sharedDb -inMemory"
+    restart: always
+
+  # 🖥️ DynamoDB GUI 管理ツール (dynamodb-admin)
+  dynamodb-admin:
+    image: aaronshaf/dynamodb-admin:latest
+    container_name: snap-kakeibo-dynamodb-admin
+    ports:
+      - "8001:8001"
+    environment:
+      - DYNAMO_ENDPOINT=http://dynamodb-local:8000
+    depends_on:
+      - dynamodb-local
     restart: always

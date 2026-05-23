@@ -23,7 +23,13 @@ app.add_middleware(
 
 # AWSクライアントの初期化
 s3_client = boto3.client("s3")
-dynamodb = boto3.resource("dynamodb")
+
+# ローカルDynamoDBまたはAWS DynamoDBへの接続切り替え
+DYNAMODB_ENDPOINT_URL = os.environ.get("DYNAMODB_ENDPOINT_URL")
+if DYNAMODB_ENDPOINT_URL:
+    dynamodb = boto3.resource("dynamodb", endpoint_url=DYNAMODB_ENDPOINT_URL)
+else:
+    dynamodb = boto3.resource("dynamodb")
 # Bedrock Runtimeクライアントの初期化 (東京リージョン ap-northeast-1)
 bedrock_client = boto3.client(
     "bedrock-runtime", region_name=os.environ.get("AWS_REGION", "ap-northeast-1")
@@ -33,6 +39,33 @@ bedrock_client = boto3.client(
 TABLE_NAME = os.environ.get("DYNAMODB_TABLE", "snap_kakeibo_transactions")
 BUCKET_NAME = os.environ.get("S3_BUCKET", "snap-kakeibo-receipts")
 MODEL_ID = "amazon.nova-lite-v1:0"  # Bedrock の超低コストマルチモーダルモデル
+
+
+# ローカル環境起動時にテーブルがなければ自動作成する
+@app.on_event("startup")
+def setup_local_db():
+    if DYNAMODB_ENDPOINT_URL:
+        try:
+            # 既存テーブルをチェック
+            existing_tables = [table.name for table in dynamodb.tables.all()]
+            if TABLE_NAME not in existing_tables:
+                print(f"Creating local DynamoDB table: {TABLE_NAME}...")
+                dynamodb.create_table(
+                    TableName=TABLE_NAME,
+                    KeySchema=[
+                        {"AttributeName": "PK", "KeyType": "HASH"},
+                        {"AttributeName": "SK", "KeyType": "RANGE"},
+                    ],
+                    AttributeDefinitions=[
+                        {"AttributeName": "PK", "AttributeType": "S"},
+                        {"AttributeName": "SK", "AttributeType": "S"},
+                    ],
+                    BillingMode="PAY_PER_REQUEST",
+                )
+                print("Local DynamoDB table created successfully!")
+        except Exception as e:
+            print(f"Warning: Failed to setup local DynamoDB: {e}")
+
 
 # --- スキーマ定義 (Pydantic) ---
 
@@ -250,6 +283,20 @@ def list_transactions(user_id: str = "USER#default"):
         raise HTTPException(
             status_code=500, detail=f"Failed to query DynamoDB: {str(e)}"
         ) from e
+
+
+@app.delete("/api/transactions/{transaction_id}")
+def delete_transaction(transaction_id: str, user_id: str = "USER#default"):
+    """
+    指定された取引履歴をDynamoDBから削除します。
+    """
+    try:
+        table = dynamodb.Table(TABLE_NAME)
+        table.delete_item(Key={"PK": f"USER#{user_id}", "SK": transaction_id})
+        return {"status": "success", "message": f"Transaction {transaction_id} deleted"}
+    except ClientError as e:
+        msg = f"Failed to delete transaction from DynamoDB: {str(e)}"
+        raise HTTPException(status_code=500, detail=msg) from e
 
 
 # AWS Lambda用のハンドラー
