@@ -12,6 +12,7 @@ import {
   Sparkles,
   Calendar,
   AlertCircle,
+  Trash2,
 } from 'lucide-react';
 import {
   AreaChart,
@@ -131,6 +132,9 @@ export default function App() {
 
   // 解析結果プレビュー & 編集
   const [editData, setEditData] = useState<Partial<Transaction> | null>(null);
+
+  // 詳細表示用の取引データ
+  const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null);
 
   useEffect(() => {
     localStorage.setItem('snap_kakeibo_transactions', JSON.stringify(transactions));
@@ -390,6 +394,27 @@ export default function App() {
     setPreviewUrl(null);
     setEditData(null);
     setActiveTab('dashboard');
+  };
+
+  // 取引データの削除
+  const handleDeleteTransaction = async (id: string) => {
+    if (!window.confirm('この取引データを削除しますか？')) return;
+
+    if (apiUrl) {
+      try {
+        await fetch(`${apiUrl}/api/transactions/${id}`, {
+          method: 'DELETE',
+        });
+      } catch (err) {
+        console.warn('サーバーでの削除に失敗しました（ローカルからのみ削除します）');
+      }
+    }
+
+    setTransactions(prev => prev.filter(t => t.id !== id));
+
+    if (selectedTransaction?.id === id) {
+      setSelectedTransaction(null);
+    }
   };
 
   // 設定保存
@@ -1118,7 +1143,24 @@ export default function App() {
               <div
                 className="glass-card"
                 key={t.id}
-                style={{ padding: '16px 20px', marginBottom: '12px' }}
+                onClick={() => setSelectedTransaction(t)}
+                style={{
+                  padding: '16px 20px',
+                  marginBottom: '12px',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s ease',
+                  position: 'relative',
+                }}
+                onMouseEnter={e => {
+                  e.currentTarget.style.transform = 'translateY(-2px)';
+                  e.currentTarget.style.background = 'rgba(255, 255, 255, 0.05)';
+                  e.currentTarget.style.borderColor = 'rgba(139, 92, 246, 0.3)';
+                }}
+                onMouseLeave={e => {
+                  e.currentTarget.style.transform = 'translateY(0)';
+                  e.currentTarget.style.background = 'var(--glass-bg)';
+                  e.currentTarget.style.borderColor = 'var(--glass-border)';
+                }}
               >
                 <div
                   style={{
@@ -1167,12 +1209,46 @@ export default function App() {
                       </span>
                     </div>
                   </div>
-                  <span
-                    className="numeric"
-                    style={{ fontSize: '18px', fontWeight: 700, color: 'var(--text-primary)' }}
-                  >
-                    ¥{t.total_amount.toLocaleString()}
-                  </span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                    <span
+                      className="numeric"
+                      style={{ fontSize: '18px', fontWeight: 700, color: 'var(--text-primary)' }}
+                    >
+                      ¥{t.total_amount.toLocaleString()}
+                    </span>
+                    <button
+                      onClick={e => {
+                        e.stopPropagation();
+                        handleDeleteTransaction(t.id);
+                      }}
+                      style={{
+                        background: 'rgba(239, 68, 68, 0.1)',
+                        border: '1px solid rgba(239, 68, 68, 0.2)',
+                        borderRadius: '8px',
+                        width: '32px',
+                        height: '32px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        color: '#f87171',
+                        cursor: 'pointer',
+                        transition: 'all 0.2s',
+                      }}
+                      onMouseEnter={e => {
+                        e.currentTarget.style.background = 'rgba(239, 68, 68, 0.25)';
+                        e.currentTarget.style.color = '#ef4444';
+                        e.currentTarget.style.borderColor = 'rgba(239, 68, 68, 0.4)';
+                      }}
+                      onMouseLeave={e => {
+                        e.currentTarget.style.background = 'rgba(239, 68, 68, 0.1)';
+                        e.currentTarget.style.color = '#f87171';
+                        e.currentTarget.style.borderColor = 'rgba(239, 68, 68, 0.2)';
+                      }}
+                      title="この履歴を削除"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
                 </div>
 
                 {t.items && t.items.length > 0 && (
@@ -1354,6 +1430,310 @@ export default function App() {
           <span>設定</span>
         </button>
       </nav>
+
+      {/* ==================== 5. DETAIL MODAL ==================== */}
+      {selectedTransaction && (
+        <div
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: 'rgba(0, 0, 0, 0.75)',
+            backdropFilter: 'blur(12px)',
+            zIndex: 1000,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '20px',
+            animation: 'fadeIn 0.25s ease-out',
+          }}
+          onClick={() => setSelectedTransaction(null)}
+        >
+          <style>{`
+            @keyframes fadeIn {
+              from { opacity: 0; }
+              to { opacity: 1; }
+            }
+            @keyframes scaleUp {
+              from { transform: scale(0.96); opacity: 0; }
+              to { transform: scale(1); opacity: 1; }
+            }
+          `}</style>
+          <div
+            style={{
+              background: 'rgba(15, 17, 26, 0.85)',
+              border: '1px solid rgba(255, 255, 255, 0.08)',
+              borderRadius: '24px',
+              width: '100%',
+              maxWidth: '480px',
+              padding: '28px 24px 24px',
+              boxShadow: '0 25px 60px rgba(0, 0, 0, 0.6)',
+              backdropFilter: 'blur(20px)',
+              position: 'relative',
+              animation: 'scaleUp 0.3s cubic-bezier(0.34, 1.56, 0.64, 1)',
+            }}
+            onClick={e => e.stopPropagation()}
+          >
+            {/* モーダルヘッダー */}
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                marginBottom: '20px',
+              }}
+            >
+              <h3
+                style={{ fontSize: '18px', fontWeight: 700, color: '#fff', letterSpacing: '0.5px' }}
+              >
+                取引明細詳細
+              </h3>
+              <button
+                onClick={() => setSelectedTransaction(null)}
+                style={{
+                  background: 'rgba(255,255,255,0.05)',
+                  border: 'none',
+                  borderRadius: '50%',
+                  width: '32px',
+                  height: '32px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: '#fff',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s',
+                }}
+                onMouseEnter={e => {
+                  e.currentTarget.style.background = 'rgba(255,255,255,0.15)';
+                }}
+                onMouseLeave={e => {
+                  e.currentTarget.style.background = 'rgba(255,255,255,0.05)';
+                }}
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            {/* 基本情報カード */}
+            <div
+              style={{
+                background: 'rgba(255,255,255,0.02)',
+                borderRadius: '16px',
+                border: '1px solid rgba(255,255,255,0.04)',
+                padding: '16px',
+                marginBottom: '20px',
+              }}
+            >
+              <div
+                style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '10px' }}
+              >
+                <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>ご利用店舗</span>
+                <span style={{ fontSize: '14px', fontWeight: 600, color: '#fff' }}>
+                  {selectedTransaction.shop_name}
+                </span>
+              </div>
+              <div
+                style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '10px' }}
+              >
+                <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>利用日</span>
+                <span
+                  style={{
+                    fontSize: '14px',
+                    fontWeight: 600,
+                    color: '#fff',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                  }}
+                >
+                  <Calendar size={13} color="var(--text-muted)" />
+                  {selectedTransaction.transaction_date}
+                </span>
+              </div>
+              <div
+                style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '10px' }}
+              >
+                <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>カテゴリ</span>
+                <span
+                  style={{
+                    background: CATEGORY_COLORS[selectedTransaction.category_name] + '20',
+                    color: CATEGORY_COLORS[selectedTransaction.category_name] || '#868e96',
+                    fontSize: '11px',
+                    padding: '2px 8px',
+                    borderRadius: '10px',
+                    fontWeight: 600,
+                  }}
+                >
+                  {selectedTransaction.category_name}
+                </span>
+              </div>
+              {selectedTransaction.memo && (
+                <div
+                  style={{
+                    marginTop: '14px',
+                    borderTop: '1px solid rgba(255,255,255,0.04)',
+                    paddingTop: '12px',
+                  }}
+                >
+                  <span
+                    style={{
+                      fontSize: '11px',
+                      color: 'var(--text-muted)',
+                      display: 'block',
+                      marginBottom: '4px',
+                    }}
+                  >
+                    メモ
+                  </span>
+                  <p
+                    style={{
+                      fontSize: '12px',
+                      color: 'var(--text-secondary)',
+                      margin: 0,
+                      lineHeight: 1.4,
+                    }}
+                  >
+                    {selectedTransaction.memo}
+                  </p>
+                </div>
+              )}
+            </div>
+
+            {/* 品目内訳リスト */}
+            <div style={{ marginBottom: '24px' }}>
+              <label
+                style={{
+                  fontSize: '13px',
+                  color: 'var(--text-secondary)',
+                  fontWeight: 600,
+                  display: 'block',
+                  marginBottom: '10px',
+                }}
+              >
+                購入品目内訳
+              </label>
+              <div
+                style={{
+                  maxHeight: '180px',
+                  overflowY: 'auto',
+                  background: 'rgba(0,0,0,0.18)',
+                  borderRadius: '16px',
+                  border: '1px solid rgba(255,255,255,0.02)',
+                  padding: '12px 16px',
+                }}
+              >
+                {selectedTransaction.items && selectedTransaction.items.length > 0 ? (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                    {selectedTransaction.items.map((item, index) => (
+                      <div
+                        key={index}
+                        style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                          fontSize: '13px',
+                          color: 'var(--text-primary)',
+                          paddingBottom:
+                            index < selectedTransaction.items.length - 1 ? '10px' : '0',
+                          borderBottom:
+                            index < selectedTransaction.items.length - 1
+                              ? '1px solid rgba(255,255,255,0.03)'
+                              : 'none',
+                        }}
+                      >
+                        <span style={{ fontWeight: 500 }}>{item.name || '未分類の商品'}</span>
+                        <span
+                          className="numeric"
+                          style={{ color: 'var(--text-secondary)', fontSize: '12px' }}
+                        >
+                          ¥{item.price.toLocaleString()} × {item.qty}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p
+                    style={{
+                      fontSize: '12px',
+                      color: 'var(--text-muted)',
+                      textAlign: 'center',
+                      margin: '12px 0',
+                    }}
+                  >
+                    品目データはありません。
+                  </p>
+                )}
+              </div>
+            </div>
+
+            {/* 合計金額表示 */}
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'baseline',
+                marginBottom: '28px',
+                padding: '0 4px',
+              }}
+            >
+              <span style={{ fontSize: '15px', fontWeight: 600, color: '#fff' }}>合計金額</span>
+              <span
+                className="numeric"
+                style={{ fontSize: '26px', fontWeight: 800, color: 'var(--accent-purple)' }}
+              >
+                ¥{selectedTransaction.total_amount.toLocaleString()}
+              </span>
+            </div>
+
+            {/* アクションボタン */}
+            <div style={{ display: 'flex', gap: '12px' }}>
+              <button
+                onClick={() => {
+                  handleDeleteTransaction(selectedTransaction.id);
+                }}
+                style={{
+                  flex: 1,
+                  background: 'rgba(239, 68, 68, 0.1)',
+                  border: '1px solid rgba(239, 68, 68, 0.25)',
+                  borderRadius: '16px',
+                  color: '#f87171',
+                  padding: '12px',
+                  fontSize: '13px',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '6px',
+                  transition: 'all 0.2s',
+                }}
+                onMouseEnter={e => {
+                  e.currentTarget.style.background = 'rgba(239, 68, 68, 0.2)';
+                  e.currentTarget.style.borderColor = 'rgba(239, 68, 68, 0.4)';
+                  e.currentTarget.style.color = '#ef4444';
+                }}
+                onMouseLeave={e => {
+                  e.currentTarget.style.background = 'rgba(239, 68, 68, 0.1)';
+                  e.currentTarget.style.borderColor = 'rgba(239, 68, 68, 0.25)';
+                  e.currentTarget.style.color = '#f87171';
+                }}
+              >
+                <Trash2 size={16} />
+                この取引を削除
+              </button>
+              <button
+                onClick={() => setSelectedTransaction(null)}
+                className="btn-secondary"
+                style={{ flex: 1, borderRadius: '16px', padding: '12px', fontSize: '13px' }}
+              >
+                閉じる
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
