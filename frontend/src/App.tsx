@@ -136,6 +136,12 @@ export default function App() {
   // 詳細表示用の取引データ
   const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null);
 
+  // 予算設定ステート
+  const [monthlyBudget, setMonthlyBudget] = useState(() => {
+    const saved = localStorage.getItem('snap_kakeibo_budget');
+    return saved ? parseInt(saved) : 100000;
+  });
+
   useEffect(() => {
     localStorage.setItem('snap_kakeibo_transactions', JSON.stringify(transactions));
   }, [transactions]);
@@ -421,6 +427,7 @@ export default function App() {
   const saveSettings = () => {
     localStorage.setItem('snap_kakeibo_api_url', apiUrl);
     localStorage.setItem('snap_kakeibo_gemini_key', geminiApiKey);
+    localStorage.setItem('snap_kakeibo_budget', monthlyBudget.toString());
     alert('設定を保存しました。');
   };
 
@@ -548,6 +555,74 @@ export default function App() {
               >
                 <TrendingUp size={16} />
                 <span>AIが支出カテゴリを自動最適化中</span>
+              </div>
+            </div>
+
+            {/* 予算ゲージカード */}
+            <div className="glass-card" style={{ padding: '18px 20px', marginBottom: '16px' }}>
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  marginBottom: '10px',
+                }}
+              >
+                <span style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: 500 }}>
+                  今月の予算使用状況
+                </span>
+                <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
+                  予算: ¥{monthlyBudget.toLocaleString()}
+                </span>
+              </div>
+
+              {/* プログレスバー */}
+              <div
+                style={{
+                  width: '100%',
+                  height: '10px',
+                  borderRadius: '5px',
+                  background: 'rgba(255, 255, 255, 0.05)',
+                  overflow: 'hidden',
+                  position: 'relative',
+                  marginBottom: '12px',
+                }}
+              >
+                <div
+                  style={{
+                    width: `${Math.min(100, (totalMonthlySpend / monthlyBudget) * 100)}%`,
+                    height: '100%',
+                    borderRadius: '5px',
+                    background:
+                      totalMonthlySpend > monthlyBudget
+                        ? 'linear-gradient(90deg, #ec4899 0%, #ef4444 100%)'
+                        : 'linear-gradient(90deg, #8b5cf6 0%, #3b82f6 100%)',
+                    transition: 'width 0.5s ease-out',
+                  }}
+                />
+              </div>
+
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  fontSize: '12px',
+                }}
+              >
+                <span
+                  style={{
+                    color: totalMonthlySpend > monthlyBudget ? '#f87171' : 'var(--text-secondary)',
+                    fontWeight: 500,
+                  }}
+                >
+                  {totalMonthlySpend > monthlyBudget
+                    ? `予算を ¥${(totalMonthlySpend - monthlyBudget).toLocaleString()} 超過しています`
+                    : `残り: ¥${(monthlyBudget - totalMonthlySpend).toLocaleString()}`}
+                </span>
+                <span className="numeric" style={{ fontWeight: 600, color: 'var(--text-primary)' }}>
+                  {((totalMonthlySpend / monthlyBudget) * 100).toFixed(1)}%
+                </span>
               </div>
             </div>
 
@@ -683,6 +758,126 @@ export default function App() {
                       </div>
                     ))}
                   </div>
+                </div>
+              )}
+            </div>
+
+            {/* 最近の支出セクション */}
+            <div className="glass-card" style={{ marginBottom: '20px' }}>
+              <h3
+                style={{
+                  fontSize: '15px',
+                  fontWeight: 600,
+                  marginBottom: '16px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                }}
+              >
+                <History size={18} color="#a78bfa" />
+                最近の支出
+              </h3>
+
+              {transactions.length === 0 ? (
+                <p
+                  style={{
+                    textAlign: 'center',
+                    color: 'var(--text-muted)',
+                    padding: '16px 0',
+                    fontSize: '13px',
+                  }}
+                >
+                  登録された取引はありません
+                </p>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                  {transactions.slice(0, 3).map(t => (
+                    <div
+                      key={t.id}
+                      onClick={() => setSelectedTransaction(t)}
+                      style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        padding: '10px 14px',
+                        background: 'rgba(255, 255, 255, 0.02)',
+                        border: '1px solid rgba(255, 255, 255, 0.03)',
+                        borderRadius: '12px',
+                        cursor: 'pointer',
+                        transition: 'all 0.2s',
+                      }}
+                      onMouseEnter={e => {
+                        e.currentTarget.style.background = 'rgba(255, 255, 255, 0.05)';
+                        e.currentTarget.style.borderColor = 'rgba(139, 92, 246, 0.2)';
+                        e.currentTarget.style.transform = 'translateX(2px)';
+                      }}
+                      onMouseLeave={e => {
+                        e.currentTarget.style.background = 'rgba(255, 255, 255, 0.02)';
+                        e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.03)';
+                        e.currentTarget.style.transform = 'translateX(0)';
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <div
+                          style={{
+                            width: '8px',
+                            height: '8px',
+                            borderRadius: '50%',
+                            background: CATEGORY_COLORS[t.category_name] || '#868e96',
+                          }}
+                        />
+                        <div>
+                          <h4
+                            style={{
+                              fontSize: '13px',
+                              fontWeight: 600,
+                              color: 'var(--text-primary)',
+                              margin: 0,
+                            }}
+                          >
+                            {t.shop_name}
+                          </h4>
+                          <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                            {t.transaction_date}
+                          </span>
+                        </div>
+                      </div>
+                      <span
+                        className="numeric"
+                        style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)' }}
+                      >
+                        ¥{t.total_amount.toLocaleString()}
+                      </span>
+                    </div>
+                  ))}
+
+                  {transactions.length > 3 && (
+                    <button
+                      onClick={() => setActiveTab('history')}
+                      style={{
+                        background: 'none',
+                        border: 'none',
+                        color: 'var(--accent-purple)',
+                        fontSize: '12px',
+                        fontWeight: 600,
+                        cursor: 'pointer',
+                        textAlign: 'center',
+                        marginTop: '4px',
+                        padding: '4px 0',
+                        display: 'block',
+                        width: '100%',
+                        transition: 'color 0.2s',
+                      }}
+                      onMouseEnter={e => {
+                        e.currentTarget.style.color = '#a78bfa';
+                      }}
+                      onMouseLeave={e => {
+                        e.currentTarget.style.color = 'var(--accent-purple)';
+                      }}
+                    >
+                      すべての履歴を見る ({transactions.length}件)
+                    </button>
+                  )}
                 </div>
               )}
             </div>
@@ -1313,6 +1508,28 @@ export default function App() {
               <SettingsIcon size={20} color="#8b5cf6" />
               AWS / AI 連携設定
             </h3>
+
+            <div className="form-group" style={{ marginBottom: '24px' }}>
+              <label>月間予算設定 (円)</label>
+              <input
+                type="number"
+                className="form-control numeric"
+                placeholder="100000"
+                style={{ fontSize: '16px', fontWeight: 600 }}
+                value={monthlyBudget}
+                onChange={e => setMonthlyBudget(parseInt(e.target.value) || 0)}
+              />
+              <span
+                style={{
+                  fontSize: '11px',
+                  color: 'var(--text-muted)',
+                  marginTop: '4px',
+                  display: 'block',
+                }}
+              >
+                ダッシュボードの予算使用ゲージにリアルタイム連動します。
+              </span>
+            </div>
 
             <div
               style={{
