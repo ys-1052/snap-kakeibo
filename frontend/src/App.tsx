@@ -1516,7 +1516,7 @@ export default function App() {
                 className="form-control numeric"
                 placeholder="100000"
                 style={{ fontSize: '16px', fontWeight: 600 }}
-                value={monthlyBudget}
+                value={monthlyBudget === 0 ? '' : monthlyBudget}
                 onChange={e => setMonthlyBudget(parseInt(e.target.value) || 0)}
               />
               <span
