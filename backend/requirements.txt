@@ -5,3 +5,6 @@ boto3>=1.35.0
 pydantic>=2.10.0
 python-multipart>=0.0.19
 ruff>=0.3.0
+PyJWT[crypto]>=2.10.0
+requests>=2.31.0
+

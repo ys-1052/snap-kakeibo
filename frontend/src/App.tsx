@@ -13,6 +13,11 @@ import {
   Calendar,
   AlertCircle,
   Trash2,
+  LogOut,
+  Lock,
+  Mail,
+  User,
+  ShieldCheck,
 } from 'lucide-react';
 import {
   AreaChart,
@@ -25,6 +30,8 @@ import {
   Pie,
   Cell,
 } from 'recharts';
+import { cognitoSignIn, cognitoRespondToNewPasswordRequired } from './cognito';
+import { CONFIG } from './config';
 
 // --- モックデータ & 型定義 ---
 
@@ -119,13 +126,28 @@ export default function App() {
     return saved ? JSON.parse(saved) : INITIAL_TRANSACTIONS;
   });
 
-  // API設定
-  const [apiUrl, setApiUrl] = useState(
-    () => localStorage.getItem('snap_kakeibo_api_url') || 'http://localhost:8000'
+  // API・Cognito認証設定 (config.tsからロード)
+  const apiUrl = CONFIG.API_URL || 'http://localhost:8000';
+  const cognitoClientId = CONFIG.COGNITO_CLIENT_ID || '';
+  const cognitoRegion = CONFIG.COGNITO_REGION || 'ap-northeast-1';
+
+  // 認証ステート
+  const [token, setToken] = useState(() => localStorage.getItem('snap_kakeibo_token') || '');
+  const [userEmail, setUserEmail] = useState(
+    () => localStorage.getItem('snap_kakeibo_user_email') || ''
   );
-  const [geminiApiKey, setGeminiApiKey] = useState(
-    () => localStorage.getItem('snap_kakeibo_gemini_key') || ''
+  const [userRole, setUserRole] = useState(
+    () => localStorage.getItem('snap_kakeibo_user_role') || '一般'
   );
+
+  // ログインフォームステート
+  const [loginEmail, setLoginEmail] = useState('');
+  const [loginPassword, setLoginPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [isNewPasswordRequired, setIsNewPasswordRequired] = useState(false);
+  const [cognitoSession, setCognitoSession] = useState('');
+  const [authError, setAuthError] = useState('');
+  const [authLoading, setAuthLoading] = useState(false);
 
   // スキャンステータス
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -154,7 +176,15 @@ export default function App() {
     const fetchTransactions = async () => {
       if (!apiUrl) return;
       try {
-        const response = await fetch(`${apiUrl}/api/transactions`);
+        const headers: HeadersInit = {};
+        if (token) {
+          headers['Authorization'] = `Bearer ${token}`;
+        }
+        const response = await fetch(`${apiUrl}/api/transactions`, { headers });
+        if (response.status === 401 && cognitoClientId) {
+          handleLogout();
+          return;
+        }
         if (response.ok) {
           const data = await response.json();
           // APIから取得したデータをマッピングして格納 (DynamoDBのSKをidとして使用)
@@ -176,7 +206,7 @@ export default function App() {
     };
 
     fetchTransactions();
-  }, [apiUrl]);
+  }, [apiUrl, token, cognitoClientId]);
 
   // SVGグラデーションを定義するために一度だけ描画するコンポーネント用
   const GradientDefs = () => (
@@ -262,9 +292,18 @@ export default function App() {
         setScanStep('S3へ直接アップロード中...');
         // 署名付きURL取得
         const nameParam = selectedFile ? selectedFile.name : 'receipt.jpg';
+        const headers: HeadersInit = {};
+        if (token) {
+          headers['Authorization'] = `Bearer ${token}`;
+        }
         const urlRes = await fetch(
-          `${apiUrl}/api/receipts/presigned-url?filename=${encodeURIComponent(nameParam)}`
+          `${apiUrl}/api/receipts/presigned-url?filename=${encodeURIComponent(nameParam)}`,
+          { headers }
         );
+        if (urlRes.status === 401 && cognitoClientId) {
+          handleLogout();
+          return;
+        }
         if (!urlRes.ok) throw new Error('署名付きURLの取得に失敗しました');
         const { upload_url, file_key } = await urlRes.json();
 
@@ -279,13 +318,21 @@ export default function App() {
         });
         if (!uploadRes.ok) throw new Error('S3へのアップロードに失敗しました');
 
-        // Geminiで解析
-        setScanStep('Gemini 2.5 Flashで文字起こし & 解析中...');
+        // AIで解析
+        setScanStep('AIによるレシートの文字起こし & 解析中...');
+        const analyzeHeaders: HeadersInit = { 'Content-Type': 'application/json' };
+        if (token) {
+          analyzeHeaders['Authorization'] = `Bearer ${token}`;
+        }
         const analyzeRes = await fetch(`${apiUrl}/api/receipts/analyze`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: analyzeHeaders,
           body: JSON.stringify({ file_key }),
         });
+        if (analyzeRes.status === 401 && cognitoClientId) {
+          handleLogout();
+          return;
+        }
         if (!analyzeRes.ok) throw new Error('レシート解析に失敗しました');
 
         const result = await analyzeRes.json();
@@ -308,7 +355,7 @@ export default function App() {
   // デモ用のスキャンシミュレーション
   const runDemoScan = () => {
     setTimeout(() => {
-      setScanStep('GeminiマルチモーダルAPI接続中...');
+      setScanStep('AIマルチモーダルAPI接続中...');
       setTimeout(() => {
         setScanStep('品目と金額の構造化データを抽出中...');
         setTimeout(() => {
@@ -406,9 +453,13 @@ export default function App() {
     // AWS APIが設定されている場合はサーバーに保存
     if (apiUrl) {
       try {
+        const headers: HeadersInit = { 'Content-Type': 'application/json' };
+        if (token) {
+          headers['Authorization'] = `Bearer ${token}`;
+        }
         const response = await fetch(`${apiUrl}/api/transactions`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers,
           body: JSON.stringify({
             transaction_date: newTx.transaction_date,
             shop_name: newTx.shop_name,
@@ -419,6 +470,10 @@ export default function App() {
             memo: newTx.memo,
           }),
         });
+        if (response.status === 401 && cognitoClientId) {
+          handleLogout();
+          return;
+        }
         if (!response.ok) throw new Error('サーバーへの保存に失敗しました');
         const resData = await response.json();
         // サーバーが返した本物のDynamoDB SKをセットする
@@ -445,10 +500,19 @@ export default function App() {
 
     if (apiUrl) {
       try {
+        const headers: HeadersInit = {};
+        if (token) {
+          headers['Authorization'] = `Bearer ${token}`;
+        }
         // キーに含まれる「#」を安全に転送するためにURLエンコードする
-        await fetch(`${apiUrl}/api/transactions/${encodeURIComponent(id)}`, {
+        const response = await fetch(`${apiUrl}/api/transactions/${encodeURIComponent(id)}`, {
           method: 'DELETE',
+          headers,
         });
+        if (response.status === 401 && cognitoClientId) {
+          handleLogout();
+          return;
+        }
       } catch (err) {
         console.warn('サーバーでの削除に失敗しました（ローカルからのみ削除します）');
       }
@@ -461,13 +525,418 @@ export default function App() {
     }
   };
 
+  // 認証ハンドラー
+  const handleLogout = () => {
+    localStorage.removeItem('snap_kakeibo_token');
+    localStorage.removeItem('snap_kakeibo_user_email');
+    localStorage.removeItem('snap_kakeibo_user_role');
+    setToken('');
+    setUserEmail('');
+    setUserRole('一般');
+    setIsNewPasswordRequired(false);
+    setCognitoSession('');
+    setAuthError('');
+  };
+
+  const handleLoginSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!loginEmail || !loginPassword) {
+      setAuthError('メールアドレスとパスワードを入力してください。');
+      return;
+    }
+
+    setAuthLoading(true);
+    setAuthError('');
+
+    // ローカル擬似認証モードの場合のバイパス処理
+    if (cognitoClientId === 'local') {
+      setTimeout(() => {
+        completeLogin(`local-token-${loginEmail}`, loginEmail);
+        setAuthLoading(false);
+      }, 600);
+      return;
+    }
+
+    try {
+      const res = await cognitoSignIn(loginEmail, loginPassword, {
+        clientId: cognitoClientId,
+        region: cognitoRegion,
+      });
+
+      if (res.error) {
+        setAuthError(res.error);
+      } else if (res.challengeName === 'NEW_PASSWORD_REQUIRED' && res.session) {
+        setIsNewPasswordRequired(true);
+        setCognitoSession(res.session);
+      } else if (res.idToken) {
+        completeLogin(res.idToken, loginEmail);
+      }
+    } catch (err: any) {
+      setAuthError(err.message || 'ログイン中にエラーが発生しました。');
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  const handleNewPasswordSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newPassword) {
+      setAuthError('新しいパスワードを入力してください。');
+      return;
+    }
+
+    setAuthLoading(true);
+    setAuthError('');
+
+    try {
+      const res = await cognitoRespondToNewPasswordRequired(
+        loginEmail,
+        newPassword,
+        cognitoSession,
+        {
+          clientId: cognitoClientId,
+          region: cognitoRegion,
+        }
+      );
+
+      if (res.error) {
+        setAuthError(res.error);
+      } else if (res.idToken) {
+        setIsNewPasswordRequired(false);
+        setCognitoSession('');
+        completeLogin(res.idToken, loginEmail);
+      }
+    } catch (err: any) {
+      setAuthError(err.message || 'パスワード変更中にエラーが発生しました。');
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  const completeLogin = (idToken: string, email: string) => {
+    localStorage.setItem('snap_kakeibo_token', idToken);
+    localStorage.setItem('snap_kakeibo_user_email', email);
+
+    let role = '一般';
+    try {
+      const payloadBase64 = idToken.split('.')[1];
+      const decodedPayload = JSON.parse(atob(payloadBase64));
+      const groups = decodedPayload['cognito:groups'] || [];
+      if (groups.includes('Admins')) {
+        role = '管理者';
+      }
+    } catch (err) {
+      console.warn('トークンの解析に失敗しました:', err);
+    }
+
+    localStorage.setItem('snap_kakeibo_user_role', role);
+    setToken(idToken);
+    setUserEmail(email);
+    setUserRole(role);
+    setLoginPassword('');
+    setNewPassword('');
+    setAuthError('');
+  };
+
   // 設定保存
   const saveSettings = () => {
-    localStorage.setItem('snap_kakeibo_api_url', apiUrl);
-    localStorage.setItem('snap_kakeibo_gemini_key', geminiApiKey);
     localStorage.setItem('snap_kakeibo_budget', monthlyBudget.toString());
     alert('設定を保存しました。');
   };
+
+  const isAuthRequired = !!cognitoClientId;
+
+  if (isAuthRequired && !token) {
+    return (
+      <div
+        className="app-container"
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          minHeight: '100vh',
+          padding: '20px',
+        }}
+      >
+        <GradientDefs />
+
+        {/* ガラスモルフィズム調のログインフォーム */}
+        <div
+          className="glass-card"
+          style={{
+            width: '100%',
+            maxWidth: '420px',
+            background:
+              'linear-gradient(135deg, rgba(27, 20, 52, 0.8) 0%, rgba(15, 18, 36, 0.8) 100%)',
+            border: '1px solid rgba(255, 255, 255, 0.08)',
+            boxShadow: '0 20px 50px rgba(0, 0, 0, 0.3)',
+            borderRadius: '24px',
+            padding: '40px 30px',
+            textAlign: 'center',
+            position: 'relative',
+            overflow: 'hidden',
+          }}
+        >
+          <div
+            style={{
+              position: 'absolute',
+              top: '-100px',
+              right: '-100px',
+              width: '200px',
+              height: '200px',
+              background: 'var(--accent-purple)',
+              filter: 'blur(80px)',
+              opacity: 0.25,
+              borderRadius: '50%',
+            }}
+          />
+
+          <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '20px' }}>
+            <div
+              style={{
+                background: 'var(--grad-primary)',
+                width: '54px',
+                height: '54px',
+                borderRadius: '16px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                boxShadow: 'var(--glow-purple)',
+              }}
+            >
+              <Camera size={28} color="#fff" />
+            </div>
+          </div>
+
+          <h2
+            style={{
+              fontSize: '24px',
+              fontWeight: 800,
+              letterSpacing: '-0.5px',
+              marginBottom: '6px',
+            }}
+          >
+            Snap
+            <span
+              style={{
+                background: 'var(--grad-accent)',
+                WebkitBackgroundClip: 'text',
+                WebkitTextFillColor: 'transparent',
+              }}
+            >
+              Kakeibo
+            </span>
+          </h2>
+          <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '30px' }}>
+            招待者用のログイン画面です。管理者から付与されたアカウント情報でログインしてください。
+          </p>
+
+          {authError && (
+            <div
+              style={{
+                background: 'rgba(239, 68, 68, 0.1)',
+                border: '1px solid rgba(239, 68, 68, 0.2)',
+                borderRadius: '12px',
+                padding: '12px',
+                fontSize: '13px',
+                color: '#f87171',
+                textAlign: 'left',
+                display: 'flex',
+                alignItems: 'flex-start',
+                gap: '8px',
+                marginBottom: '20px',
+              }}
+            >
+              <AlertCircle size={16} style={{ flexShrink: 0, marginTop: '2px' }} />
+              <span>{authError}</span>
+            </div>
+          )}
+
+          {!isNewPasswordRequired ? (
+            // 通常ログインフォーム
+            <form
+              onSubmit={handleLoginSubmit}
+              style={{ display: 'flex', flexDirection: 'column', gap: '18px', textAlign: 'left' }}
+            >
+              <div className="form-group" style={{ margin: 0 }}>
+                <label
+                  style={{
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    color: 'var(--text-secondary)',
+                    marginBottom: '6px',
+                    display: 'block',
+                  }}
+                >
+                  メールアドレス
+                </label>
+                <div style={{ position: 'relative' }}>
+                  <input
+                    type="email"
+                    className="form-control"
+                    placeholder="your-email@example.com"
+                    style={{ paddingLeft: '40px' }}
+                    value={loginEmail}
+                    onChange={e => setLoginEmail(e.target.value)}
+                    disabled={authLoading}
+                  />
+                  <Mail
+                    size={16}
+                    color="var(--text-muted)"
+                    style={{ position: 'absolute', left: '14px', top: '15px' }}
+                  />
+                </div>
+              </div>
+
+              <div className="form-group" style={{ margin: 0 }}>
+                <label
+                  style={{
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    color: 'var(--text-secondary)',
+                    marginBottom: '6px',
+                    display: 'block',
+                  }}
+                >
+                  パスワード
+                </label>
+                <div style={{ position: 'relative' }}>
+                  <input
+                    type="password"
+                    className="form-control"
+                    placeholder="パスワードを入力"
+                    style={{ paddingLeft: '40px' }}
+                    value={loginPassword}
+                    onChange={e => setLoginPassword(e.target.value)}
+                    disabled={authLoading}
+                  />
+                  <Lock
+                    size={16}
+                    color="var(--text-muted)"
+                    style={{ position: 'absolute', left: '14px', top: '15px' }}
+                  />
+                </div>
+              </div>
+
+              <button
+                type="submit"
+                className="btn btn-primary"
+                style={{
+                  width: '100%',
+                  marginTop: '10px',
+                  height: '46px',
+                  fontSize: '14px',
+                  fontWeight: 600,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '8px',
+                  cursor: 'pointer',
+                }}
+                disabled={authLoading}
+              >
+                {authLoading ? 'ログイン中...' : 'ログイン'}
+              </button>
+            </form>
+          ) : (
+            // 初回パスワード強制変更フォーム
+            <form
+              onSubmit={handleNewPasswordSubmit}
+              style={{ display: 'flex', flexDirection: 'column', gap: '18px', textAlign: 'left' }}
+            >
+              <div
+                style={{
+                  background: 'rgba(59, 130, 246, 0.1)',
+                  border: '1px solid rgba(59, 130, 246, 0.2)',
+                  borderRadius: '12px',
+                  padding: '12px',
+                  fontSize: '12px',
+                  color: '#60a5fa',
+                  lineHeight: 1.4,
+                  marginBottom: '10px',
+                }}
+              >
+                <strong>【初回ログインチャレンジ】</strong>
+                <br />
+                安全のため、管理者から提供された仮パスワードから、新しくあなた専用の永続パスワードを設定する必要があります。
+              </div>
+
+              <div className="form-group" style={{ margin: 0 }}>
+                <label
+                  style={{
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    color: 'var(--text-secondary)',
+                    marginBottom: '6px',
+                    display: 'block',
+                  }}
+                >
+                  新しいパスワード (8文字以上)
+                </label>
+                <div style={{ position: 'relative' }}>
+                  <input
+                    type="password"
+                    className="form-control"
+                    placeholder="新しいパスワードを設定"
+                    style={{ paddingLeft: '40px' }}
+                    value={newPassword}
+                    onChange={e => setNewPassword(e.target.value)}
+                    disabled={authLoading}
+                  />
+                  <Lock
+                    size={16}
+                    color="var(--text-muted)"
+                    style={{ position: 'absolute', left: '14px', top: '15px' }}
+                  />
+                </div>
+              </div>
+
+              <button
+                type="submit"
+                className="btn btn-primary"
+                style={{
+                  width: '100%',
+                  marginTop: '10px',
+                  height: '46px',
+                  fontSize: '14px',
+                  fontWeight: 600,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '8px',
+                  cursor: 'pointer',
+                }}
+                disabled={authLoading}
+              >
+                {authLoading ? '設定中...' : '新パスワードを設定して完了'}
+              </button>
+
+              <button
+                type="button"
+                className="btn"
+                style={{
+                  width: '100%',
+                  height: '40px',
+                  fontSize: '13px',
+                  color: 'var(--text-secondary)',
+                  background: 'rgba(255,255,255,0.03)',
+                  border: '1px solid rgba(255,255,255,0.05)',
+                  cursor: 'pointer',
+                }}
+                onClick={() => {
+                  setIsNewPasswordRequired(false);
+                  setAuthError('');
+                }}
+                disabled={authLoading}
+              >
+                キャンセル
+              </button>
+            </form>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="app-container">
@@ -522,20 +991,99 @@ export default function App() {
           </div>
         </div>
 
-        <div
-          style={{
-            background: 'rgba(255,255,255,0.05)',
-            padding: '6px 12px',
-            borderRadius: '12px',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '6px',
-          }}
-        >
-          <Sparkles size={14} color="#ffd43b" />
-          <span style={{ fontSize: '12px', fontWeight: 600, color: '#ffd43b' }}>
-            Gemini 2.5 Active
-          </span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          {token && (
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                background: 'rgba(255, 255, 255, 0.03)',
+                border: '1px solid rgba(255, 255, 255, 0.05)',
+                padding: '6px 12px',
+                borderRadius: '12px',
+              }}
+            >
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                  fontSize: '11px',
+                  color: 'var(--text-secondary)',
+                  borderRight: '1px solid rgba(255, 255, 255, 0.08)',
+                  paddingRight: '8px',
+                }}
+              >
+                <User size={12} color="var(--text-secondary)" />
+                <span
+                  style={{
+                    maxWidth: '120px',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {userEmail}
+                </span>
+              </div>
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                  fontSize: '11px',
+                  color: userRole === '管理者' ? '#a78bfa' : 'var(--text-muted)',
+                  fontWeight: 600,
+                }}
+              >
+                <ShieldCheck
+                  size={12}
+                  color={userRole === '管理者' ? '#a78bfa' : 'var(--text-muted)'}
+                />
+                <span>{userRole}</span>
+              </div>
+            </div>
+          )}
+
+          {token && (
+            <button
+              onClick={handleLogout}
+              style={{
+                background: 'rgba(239, 68, 68, 0.1)',
+                border: '1px solid rgba(239, 68, 68, 0.2)',
+                borderRadius: '10px',
+                width: '32px',
+                height: '32px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                cursor: 'pointer',
+                transition: 'all 0.2s',
+              }}
+              title="ログアウト"
+            >
+              <LogOut size={14} color="#f87171" />
+            </button>
+          )}
+
+          {!token && (
+            <div
+              style={{
+                background: 'rgba(255,255,255,0.05)',
+                padding: '6px 12px',
+                borderRadius: '12px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+              }}
+            >
+              <Sparkles size={14} color="#ffd43b" />
+              <span style={{ fontSize: '12px', fontWeight: 600, color: '#ffd43b' }}>
+                Local Mode
+              </span>
+            </div>
+          )}
         </div>
       </header>
 
@@ -1544,7 +2092,7 @@ export default function App() {
               }}
             >
               <SettingsIcon size={20} color="#8b5cf6" />
-              AWS / AI 連携設定
+              設定
             </h3>
 
             <div className="form-group" style={{ marginBottom: '24px' }}>
@@ -1566,80 +2114,6 @@ export default function App() {
                 }}
               >
                 ダッシュボードの予算使用ゲージにリアルタイム連動します。
-              </span>
-            </div>
-
-            <div
-              style={{
-                background: 'rgba(236, 72, 153, 0.08)',
-                border: '1px solid rgba(236, 72, 153, 0.15)',
-                borderRadius: '16px',
-                padding: '14px',
-                marginBottom: '24px',
-                display: 'flex',
-                gap: '10px',
-              }}
-            >
-              <AlertCircle size={20} color="#ec4899" style={{ flexShrink: 0, marginTop: '2px' }} />
-              <div>
-                <h4
-                  style={{
-                    fontSize: '13px',
-                    fontWeight: 600,
-                    color: '#ec4899',
-                    marginBottom: '2px',
-                  }}
-                >
-                  デモモード対応
-                </h4>
-                <p style={{ fontSize: '12px', color: 'var(--text-secondary)', lineHeight: 1.4 }}>
-                  AWS Lambda API URL
-                  が未設定の場合、自動的にシミュレータによる「ダミースキャン（デモ）」が実行されます。
-                  AWSにインフラをデプロイしたら、下記にエンドポイントURLを設定してください。
-                </p>
-              </div>
-            </div>
-
-            <div className="form-group">
-              <label>AWS Lambda Function URL (または API Gateway)</label>
-              <input
-                type="text"
-                className="form-control"
-                placeholder="https://xxxx.lambda-url.ap-northeast-1.on.aws"
-                value={apiUrl}
-                onChange={e => setApiUrl(e.target.value)}
-              />
-              <span
-                style={{
-                  fontSize: '11px',
-                  color: 'var(--text-muted)',
-                  marginTop: '4px',
-                  display: 'block',
-                }}
-              >
-                バックエンドLambdaのデプロイ後に発行されるHTTPSエンドポイントを指定します。
-              </span>
-            </div>
-
-            <div className="form-group">
-              <label>Gemini API Key (Google AI Studio)</label>
-              <input
-                type="password"
-                className="form-control"
-                placeholder="AIzaSy..."
-                value={geminiApiKey}
-                onChange={e => setGeminiApiKey(e.target.value)}
-              />
-              <span
-                style={{
-                  fontSize: '11px',
-                  color: 'var(--text-muted)',
-                  marginTop: '4px',
-                  display: 'block',
-                }}
-              >
-                ※ バックエンド（AWS Lambda）の環境変数 `GEMINI_API_KEY`
-                に設定してデプロイすることを推奨します。
               </span>
             </div>
 

@@ -54,6 +54,17 @@ format-be:
 # 🚀 デプロイ コマンド (Serverless Framework)
 # ==========================================
 
-# バックエンドのAWSデプロイを実行
+# インフラのデプロイ、フロントエンドのビルド、S3同期までを全自動で実行
 deploy:
-	cd backend && serverless deploy
+	cd backend && AWS_PROFILE=$(AWS_PROFILE) npx serverless deploy
+	python3 backend/update_env.py --stage dev --profile $(AWS_PROFILE)
+	@echo "フロントエンドをDocker環境でビルド中..."
+	docker compose run --rm frontend npm run build
+	@echo "ビルドされた静的ファイルを本番S3バケットにアップロード中..."
+	$(eval FRONTEND_BUCKET := $(shell aws cloudformation describe-stacks --stack-name snap-kakeibo-backend-dev --query "Stacks[0].Outputs[?OutputKey=='FrontendBucketName'].OutputValue" --output text --profile $(AWS_PROFILE)))
+	aws s3 sync frontend/dist s3://$(FRONTEND_BUCKET) --delete --profile $(AWS_PROFILE)
+	@echo "\n🎉 【完全IaC】デプロイ完了！アプリケーションURL:"
+	@aws cloudformation describe-stacks --stack-name snap-kakeibo-backend-dev --query "Stacks[0].Outputs[?OutputKey=='FrontendUrl'].OutputValue" --output text --profile $(AWS_PROFILE)
+
+
+

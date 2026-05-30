@@ -11,6 +11,8 @@ provider:
     DYNAMODB_TABLE: ${self:service}-transactions-${self:provider.stage}
     S3_BUCKET: ${self:service}-receipts-${self:provider.stage}
     AWS_NODEJS_CONNECTION_REUSE_ENABLED: "1"
+    COGNITO_USER_POOL_ID: !Ref CognitoUserPool
+    COGNITO_CLIENT_ID: !Ref CognitoUserPoolClient
   iam:
     role:
       statements:
@@ -91,3 +93,138 @@ resources:
           - AttributeName: SK
             KeyType: RANGE
         BillingMode: PAY_PER_REQUEST # オンデマンド (完全従量制・無料枠あり)
+
+    # 3. 画像解析・認証用のCognitoユーザープール（管理者招待制・自己登録不可）
+    CognitoUserPool:
+      Type: AWS::Cognito::UserPool
+      Properties:
+        UserPoolName: ${self:service}-user-pool-${self:provider.stage}
+        UsernameAttributes:
+          - email
+        AutoVerifiedAttributes:
+          - email
+        AdminCreateUserConfig:
+          AllowAdminCreateUserOnly: true # 管理者による招待制（セルフサインアップ不可）
+        Policies:
+          PasswordPolicy:
+            MinimumLength: 8
+            RequireLowercase: false
+            RequireNumbers: true
+            RequireSymbols: false
+            RequireUppercase: false
+        VerificationMessageTemplate:
+          DefaultEmailOption: CONFIRM_WITH_CODE
+          EmailMessage: "SnapKakeiboへの招待です。仮パスワードは {####} です。ログイン後に変更してください。"
+          EmailSubject: "[SnapKakeibo] アカウント作成および招待コードのご案内"
+
+    # 4. フロントエンドから直接叩くためのユーザープールクライアント
+    CognitoUserPoolClient:
+      Type: AWS::Cognito::UserPoolClient
+      Properties:
+        ClientName: ${self:service}-client-${self:provider.stage}
+        UserPoolId: !Ref CognitoUserPool
+        GenerateSecret: false # クライアントサイドでの検証のためSecretは不要
+        ExplicitAuthFlows:
+          - ALLOW_USER_PASSWORD_AUTH
+          - ALLOW_REFRESH_TOKEN_AUTH
+          - ALLOW_USER_SRP_AUTH
+
+    # 5. 管理者権限グループ (Admins)
+    CognitoUserPoolGroupAdmins:
+      Type: AWS::Cognito::UserPoolGroup
+      Properties:
+        GroupName: Admins
+        UserPoolId: !Ref CognitoUserPool
+        Description: System administrator group with full rights
+
+    # 6. 一般ユーザー権限グループ (Users)
+    CognitoUserPoolGroupUsers:
+      Type: AWS::Cognito::UserPoolGroup
+      Properties:
+        GroupName: Users
+        UserPoolId: !Ref CognitoUserPool
+        Description: Standard user group
+
+    # 7. フロントエンド配信用S3バケット（プライベート）
+    FrontendBucket:
+      Type: AWS::S3::Bucket
+      Properties:
+        BucketName: ${self:service}-frontend-${self:provider.stage}
+        PublicAccessBlockConfiguration:
+          BlockPublicAcls: true
+          BlockPublicPolicy: true
+          IgnorePublicAcls: true
+          RestrictPublicBuckets: true
+
+    # 8. CloudFront OAI (Origin Access Identity)
+    FrontendOAI:
+      Type: AWS::CloudFront::CloudFrontOriginAccessIdentity
+      Properties:
+        CloudFrontOriginAccessIdentityConfig:
+          Comment: "OAI for ${self:service} frontend ${self:provider.stage}"
+
+    # 9. S3バケットポリシー (CloudFront OAIからの読み込みのみ許可)
+    FrontendBucketPolicy:
+      Type: AWS::S3::BucketPolicy
+      Properties:
+        Bucket: !Ref FrontendBucket
+        PolicyDocument:
+          Version: "2012-10-17"
+          Statement:
+            - Effect: Allow
+              Principal:
+                AWS: !Sub "arn:aws:iam::cloudfront:user/CloudFront Origin Access Identity ${FrontendOAI}"
+              Action: "s3:GetObject"
+              Resource: !Sub "arn:aws:s3:::${FrontendBucket}/*"
+
+    # 10. フロントエンド配信用 CloudFront ディストリビューション
+    FrontendCDN:
+      Type: AWS::CloudFront::Distribution
+      Properties:
+        DistributionConfig:
+          Enabled: true
+          DefaultRootObject: index.html
+          Origins:
+            - Id: FrontendBucketOrigin
+              DomainName: !GetAtt FrontendBucket.RegionalDomainName
+              S3OriginConfig:
+                OriginAccessIdentity: !Sub "origin-access-identity/cloudfront/${FrontendOAI}"
+          DefaultCacheBehavior:
+            TargetOriginId: FrontendBucketOrigin
+            ViewerProtocolPolicy: redirect-to-https
+            AllowedMethods:
+              - GET
+              - HEAD
+              - OPTIONS
+            CachedMethods:
+              - GET
+              - HEAD
+            ForwardedValues:
+              QueryString: false
+              Cookies:
+                Forward: none
+          # SPA用ルーティング設定 (403/404エラーを /index.html に転送し200で返答)
+          CustomErrorResponses:
+            - ErrorCode: 404
+              ResponseCode: 200
+              ResponsePagePath: /index.html
+              ErrorCachingMinTTL: 300
+            - ErrorCode: 403
+              ResponseCode: 200
+              ResponsePagePath: /index.html
+              ErrorCachingMinTTL: 300
+
+  # デプロイ後にAWSから出力させる値を定義
+  Outputs:
+    ApiUrl:
+      Value: !GetAtt ApiLambdaFunctionUrl.FunctionUrl
+      Description: "AWS Lambda API URL"
+    CognitoClientId:
+      Value: !Ref CognitoUserPoolClient
+      Description: "AWS Cognito Client ID"
+    FrontendBucketName:
+      Value: !Ref FrontendBucket
+      Description: "S3 Bucket Name for Frontend"
+    FrontendUrl:
+      Value: !Sub "https://${FrontendCDN.DomainName}"
+      Description: "Application Frontend URL"

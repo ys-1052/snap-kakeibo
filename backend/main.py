@@ -4,9 +4,12 @@ from datetime import datetime
 from typing import List, Optional
 
 import boto3
+import jwt
+import requests
 from botocore.exceptions import ClientError
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from mangum import Mangum
 from pydantic import BaseModel, Field
 
@@ -39,6 +42,116 @@ bedrock_client = boto3.client(
 TABLE_NAME = os.environ.get("DYNAMODB_TABLE", "snap_kakeibo_transactions")
 BUCKET_NAME = os.environ.get("S3_BUCKET", "snap-kakeibo-receipts")
 MODEL_ID = "amazon.nova-lite-v1:0"  # Bedrock の超低コストマルチモーダルモデル
+
+# Cognito認証設定
+COGNITO_USER_POOL_ID = os.environ.get("COGNITO_USER_POOL_ID")
+COGNITO_CLIENT_ID = os.environ.get("COGNITO_CLIENT_ID")
+AWS_REGION = os.environ.get("AWS_REGION", "ap-northeast-1")
+
+COGNITO_JWKS = None
+security_scheme = HTTPBearer(auto_error=False)
+
+
+def get_jwks():
+    global COGNITO_JWKS
+    if COGNITO_JWKS is None and COGNITO_USER_POOL_ID:
+        try:
+            jwks_url = f"https://cognito-idp.{AWS_REGION}.amazonaws.com/{COGNITO_USER_POOL_ID}/.well-known/jwks.json"
+            response = requests.get(jwks_url, timeout=5)
+            COGNITO_JWKS = response.json()
+        except Exception as e:
+            print(f"Warning: Failed to fetch Cognito JWKS: {e}")
+    return COGNITO_JWKS
+
+
+def find_jwk(jwks: dict, kid: str) -> Optional[dict]:
+    """JWKSから一致するkidを持つ公開鍵を検索します。"""
+    for key in jwks.get("keys", []):
+        if key.get("kid") == kid:
+            return key
+    return None
+
+
+def decode_cognito_token(token: str, key_data: dict) -> dict:
+    """公開鍵を使用してCognitoトークンをデコードし検証します。"""
+    public_key = jwt.algorithms.RSAAlgorithm.from_jwk(key_data)
+    issuer = f"https://cognito-idp.{AWS_REGION}.amazonaws.com/{COGNITO_USER_POOL_ID}"
+    return jwt.decode(
+        token,
+        public_key,
+        algorithms=["RS256"],
+        audience=COGNITO_CLIENT_ID,
+        issuer=issuer,
+    )
+
+
+def handle_local_mock_auth(
+    credentials: Optional[HTTPAuthorizationCredentials],
+) -> dict:
+    """ローカル開発用の擬似認証トークンを安全にパースします。"""
+    token = credentials.credentials if credentials else None
+    email = "dev-user@example.com"
+    if token and token.startswith("local-token-"):
+        email = token.replace("local-token-", "")
+
+    # S3やDynamoDBのキーとして使える形式でユーザーIDを生成
+    user_id = f"local-user-{email.replace('@', '-').replace('.', '-')}"
+    groups = ["Admins"] if "admin" in email else ["Users"]
+    return {
+        "sub": user_id,
+        "email": email,
+        "groups": groups,
+    }
+
+
+def get_current_user(
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security_scheme),  # noqa: B008
+) -> dict:
+    # Cognito未設定時はローカル擬似認証モードを適用（マルチユーザー再現可）
+    if not COGNITO_USER_POOL_ID:
+        return handle_local_mock_auth(credentials)
+
+    if not credentials:
+        raise HTTPException(
+            status_code=401, detail="Authorization header missing or invalid"
+        )
+
+    token = credentials.credentials
+    jwks = get_jwks()
+    if not jwks:
+        raise HTTPException(status_code=500, detail="Cognito JWKS configuration error")
+
+    try:
+        unverified_header = jwt.get_unverified_header(token)
+        kid = unverified_header.get("kid")
+        if not kid:
+            raise HTTPException(
+                status_code=401, detail="Invalid token header: missing kid"
+            )
+
+        key_data = find_jwk(jwks, kid)
+        if not key_data:
+            raise HTTPException(status_code=401, detail="Public key not found for kid")
+
+        decoded = decode_cognito_token(token, key_data)
+        user_id = decoded.get("sub")
+        email = decoded.get("email")
+        groups = decoded.get("cognito:groups", [])
+
+        if not user_id:
+            raise HTTPException(
+                status_code=401, detail="Token missing user identity (sub)"
+            )
+
+        return {"sub": user_id, "email": email, "groups": groups}
+    except jwt.ExpiredSignatureError as e:
+        raise HTTPException(status_code=401, detail="Token has expired") from e
+    except jwt.InvalidTokenError as e:
+        raise HTTPException(status_code=401, detail=f"Invalid token: {str(e)}") from e
+    except Exception as e:
+        raise HTTPException(
+            status_code=401, detail=f"Authentication failed: {str(e)}"
+        ) from e
 
 
 # ローカル環境起動時にテーブルがなければ自動作成する
@@ -118,8 +231,21 @@ def health_check():
     return {"status": "ok", "timestamp": datetime.utcnow().isoformat()}
 
 
+@app.get("/api/users/me")
+def get_me(current_user: dict = Depends(get_current_user)):  # noqa: B008
+    """
+    現在ログイン中のユーザープロフィール情報を返します。
+    """
+    return {
+        "user_id": current_user["sub"],
+        "email": current_user["email"],
+        "groups": current_user["groups"],
+        "is_admin": "Admins" in current_user["groups"],
+    }
+
+
 @app.get("/api/receipts/presigned-url", response_model=PresignedUrlResponse)
-def get_presigned_url(filename: str):
+def get_presigned_url(filename: str, current_user: dict = Depends(get_current_user)):  # noqa: B008
     """
     フロントエンドがレシート画像をS3に直接アップロードするための署名付きURLを生成します。
     """
@@ -153,7 +279,10 @@ def get_presigned_url(filename: str):
 
 
 @app.post("/api/receipts/analyze", response_model=ReceiptAnalysisResult)
-def analyze_receipt(payload: AnalyzeRequest):
+def analyze_receipt(
+    payload: AnalyzeRequest,
+    current_user: dict = Depends(get_current_user),  # noqa: B008
+):
     """
     S3にアップロードされた画像を Amazon Bedrock (Nova Lite) で解析し、
     JSONに構造化して返却します。
@@ -194,7 +323,6 @@ def analyze_receipt(payload: AnalyzeRequest):
         """
 
         # Bedrock Converse API を使用してマルチモーダルリクエストを送信
-        # Converse APIは自動でbase64処理などを行うため便利
         bedrock_response = bedrock_client.converse(
             modelId=MODEL_ID,
             messages=[
@@ -219,7 +347,7 @@ def analyze_receipt(payload: AnalyzeRequest):
             "text"
         ].strip()
 
-        # AIがMarkdownの ```json ... ``` で囲んで出力した場合のトリミング処理
+        # AIがMarkdown of ```json ... ``` で囲んで出力した場合のトリミング処理
         if "```json" in text_output:
             text_output = text_output.split("```json")[1].split("```")[0].strip()
         elif "```" in text_output:
@@ -236,11 +364,15 @@ def analyze_receipt(payload: AnalyzeRequest):
 
 
 @app.post("/api/transactions")
-def save_transaction(payload: TransactionSaveRequest, user_id: str = "USER#default"):
+def save_transaction(
+    payload: TransactionSaveRequest,
+    current_user: dict = Depends(get_current_user),  # noqa: B008
+):
     """
     確定した家計簿データをDynamoDBに保存します。
     """
     try:
+        user_id = current_user["sub"]
         table = dynamodb.Table(TABLE_NAME)
         transaction_id = f"TX#{payload.transaction_date}#{uuid.uuid4()}"
 
@@ -266,11 +398,12 @@ def save_transaction(payload: TransactionSaveRequest, user_id: str = "USER#defau
 
 
 @app.get("/api/transactions")
-def list_transactions(user_id: str = "USER#default"):
+def list_transactions(current_user: dict = Depends(get_current_user)):  # noqa: B008
     """
     ユーザーの取引履歴を取得します。
     """
     try:
+        user_id = current_user["sub"]
         table = dynamodb.Table(TABLE_NAME)
         # ユーザーに紐づくデータをDynamoDBからQuery
         response = table.query(
@@ -286,11 +419,15 @@ def list_transactions(user_id: str = "USER#default"):
 
 
 @app.delete("/api/transactions/{transaction_id}")
-def delete_transaction(transaction_id: str, user_id: str = "USER#default"):
+def delete_transaction(
+    transaction_id: str,
+    current_user: dict = Depends(get_current_user),  # noqa: B008
+):
     """
     指定された取引履歴をDynamoDBから削除します。
     """
     try:
+        user_id = current_user["sub"]
         table = dynamodb.Table(TABLE_NAME)
         table.delete_item(Key={"PK": f"USER#{user_id}", "SK": transaction_id})
         return {"status": "success", "message": f"Transaction {transaction_id} deleted"}
