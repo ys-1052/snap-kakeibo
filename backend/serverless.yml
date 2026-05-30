@@ -6,7 +6,7 @@ provider:
   name: aws
   runtime: python3.12
   region: ap-northeast-1  # 東京リージョン
-  stage: dev
+  stage: prod
   environment:
     DYNAMODB_TABLE: ${self:service}-transactions-${self:provider.stage}
     S3_BUCKET: ${self:service}-receipts-${self:provider.stage}
@@ -149,7 +149,7 @@ resources:
     FrontendBucket:
       Type: AWS::S3::Bucket
       Properties:
-        BucketName: ${self:service}-frontend-${self:provider.stage}
+        BucketName: snap-kakeibo-frontend-${self:provider.stage}
         PublicAccessBlockConfiguration:
           BlockPublicAcls: true
           BlockPublicPolicy: true

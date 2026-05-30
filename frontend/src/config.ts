@@ -6,7 +6,8 @@
  */
 export const CONFIG = {
   // バックエンドのAWS Lambda Function URL (例: https://xxxx.lambda-url.ap-northeast-1.on.aws)
-  API_URL: import.meta.env.VITE_API_URL || '',
+  // 末尾のスラッシュを除去して、二重スラッシュ（//api/...）による404やCORSブロックを防ぎます。
+  API_URL: (import.meta.env.VITE_API_URL || '').replace(/\/$/, ''),
 
   // AWS Cognito ユーザープールクライアントID
   // 値がない場合は、完全ローカルで動く「擬似認証（ログイン・ログアウト・マルチユーザー分離）モード」が有効になります。

@@ -123,7 +123,9 @@ export default function App() {
   );
   const [transactions, setTransactions] = useState<Transaction[]>(() => {
     const saved = localStorage.getItem('snap_kakeibo_transactions');
-    return saved ? JSON.parse(saved) : INITIAL_TRANSACTIONS;
+    if (saved) return JSON.parse(saved);
+    // ローカル開発モード（local）の場合のみ、グラフ表示用のダミーデータを初期表示します
+    return CONFIG.COGNITO_CLIENT_ID === 'local' ? INITIAL_TRANSACTIONS : [];
   });
 
   // API・Cognito認証設定 (config.tsからロード)
@@ -564,7 +566,20 @@ export default function App() {
       });
 
       if (res.error) {
-        setAuthError(res.error);
+        // セキュリティ対策（ユーザー列挙脆弱性の防止）：
+        // 存在しないユーザー名の場合も、パスワード誤りと同じ汎用メッセージに統一します。
+        const errMsg = res.error.toLowerCase();
+        if (
+          errMsg.includes('user not found') ||
+          errMsg.includes('usernotfoundexception') ||
+          errMsg.includes('notauthorizedexception') ||
+          errMsg.includes('incorrect username or password') ||
+          errMsg.includes('user does not exist')
+        ) {
+          setAuthError('メールアドレスまたはパスワードが正しくありません。');
+        } else {
+          setAuthError(res.error);
+        }
       } else if (res.challengeName === 'NEW_PASSWORD_REQUIRED' && res.session) {
         setIsNewPasswordRequired(true);
         setCognitoSession(res.session);
