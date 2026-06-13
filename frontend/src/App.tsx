@@ -2058,7 +2058,7 @@ export default function App() {
                         border: '1px solid rgba(139, 92, 246, 0.25)',
                         borderRadius: '20px',
                         color: '#a78bfa',
-                        padding: '4px 24px',
+                        padding: '4px 14px 4px 22px',
                         fontSize: '11px',
                         fontWeight: 600,
                         cursor: 'pointer',
@@ -2075,7 +2075,7 @@ export default function App() {
                         e.currentTarget.style.background = 'rgba(139, 92, 246, 0.1)';
                       }}
                     >
-                      <Plus size={12} style={{ position: 'absolute', left: '8px' }} />
+                      <Plus size={12} style={{ position: 'absolute', left: '6px' }} />
                       追加
                     </button>
                   </div>
@@ -2124,7 +2124,7 @@ export default function App() {
                                 style={{
                                   display: 'flex',
                                   alignItems: 'center',
-                                  gap: '8px',
+                                  gap: '12px',
                                   flexShrink: 0,
                                 }}
                               >
@@ -2153,7 +2153,7 @@ export default function App() {
                                     background: 'rgba(239, 68, 68, 0.08)',
                                     border: '1px solid rgba(239, 68, 68, 0.15)',
                                     borderRadius: '8px',
-                                    width: '28px',
+                                    width: '32px',
                                     height: '28px',
                                     display: 'flex',
                                     alignItems: 'center',
