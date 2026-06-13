@@ -252,6 +252,11 @@ export default function App() {
   // 詳細表示用の取引データ
   const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null);
 
+  const [selectedMonth, setSelectedMonth] = useState(() => {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  });
+
   // 予算設定ステート
   const [monthlyBudget, setMonthlyBudget] = useState(() => {
     const saved = localStorage.getItem('snap_kakeibo_budget');
@@ -286,6 +291,8 @@ export default function App() {
             total_amount: item.total_amount,
             category_name: item.category_name,
             items: item.items || [],
+            tax_summary: item.tax_summary || null,
+            receipt_s3_key: item.receipt_s3_key || '',
             memo: item.memo || '',
             created_at: item.created_at || new Date().toISOString(),
           }));
@@ -315,29 +322,57 @@ export default function App() {
     </svg>
   );
 
-  // --- グラフデータの集計 ---
+  // --- グラフデータの集計 & フィルター ---
 
-  // 1. 日別支出の集計（過去7日間）
+  // 選択可能な月リストを動的に生成 (過去6ヶ月 + 履歴データにある月)
+  const getSelectableMonths = () => {
+    const months = new Set<string>();
+    transactions.forEach(t => {
+      if (t.transaction_date) {
+        const m = t.transaction_date.substring(0, 7);
+        if (/^\d{4}-\d{2}$/.test(m)) {
+          months.add(m);
+        }
+      }
+    });
+    // データが0件の場合は現在月だけ表示
+    if (months.size === 0) {
+      const now = new Date();
+      months.add(`${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`);
+    }
+    return Array.from(months).sort().reverse();
+  };
+
+  // 選択された月のデータのみにフィルター
+  const filteredTransactions = transactions.filter(
+    t => t.transaction_date && t.transaction_date.startsWith(selectedMonth)
+  );
+
+  // 1. 日別支出の集計（選択された月の1日〜月末日）
   const getLineChartData = () => {
+    const [yearStr, monthStr] = selectedMonth.split('-');
+    const year = parseInt(yearStr);
+    const month = parseInt(monthStr);
+
+    // 月の末日を取得
+    const daysInMonth = new Date(year, month, 0).getDate();
     const dataMap: { [key: string]: number } = {};
-    // 過去7日分を初期化
-    for (let i = 6; i >= 0; i--) {
-      const d = new Date();
-      d.setDate(d.getDate() - i);
-      const dateStr = d.toISOString().split('T')[0];
-      dataMap[dateStr] = 0;
+
+    for (let day = 1; day <= daysInMonth; day++) {
+      const dateKey = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+      dataMap[dateKey] = 0;
     }
 
-    transactions.forEach(t => {
+    filteredTransactions.forEach(t => {
       if (dataMap[t.transaction_date] !== undefined) {
         dataMap[t.transaction_date] += t.total_amount;
       }
     });
 
     return Object.keys(dataMap).map(date => {
-      const [, m, d] = date.split('-');
+      const d = parseInt(date.split('-')[2]);
       return {
-        name: `${parseInt(m)}/${parseInt(d)}`,
+        name: `${d}日`,
         amount: dataMap[date],
       };
     });
@@ -346,7 +381,7 @@ export default function App() {
   // 2. カテゴリ別支出の集計
   const getPieChartData = () => {
     const dataMap: { [key: string]: number } = {};
-    transactions.forEach(t => {
+    filteredTransactions.forEach(t => {
       dataMap[t.category_name] = (dataMap[t.category_name] || 0) + t.total_amount;
     });
 
@@ -356,7 +391,21 @@ export default function App() {
     }));
   };
 
-  const totalMonthlySpend = transactions.reduce((acc, curr) => acc + curr.total_amount, 0);
+  // 直近2週間（14日前〜今日）の取引データを取得
+  const getRecentTransactions = () => {
+    const now = new Date();
+    const twoWeeksAgo = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 14);
+    const y = twoWeeksAgo.getFullYear();
+    const m = String(twoWeeksAgo.getMonth() + 1).padStart(2, '0');
+    const d = String(twoWeeksAgo.getDate()).padStart(2, '0');
+    const threshold = `${y}-${m}-${d}`;
+
+    return transactions
+      .filter(t => t.transaction_date && t.transaction_date >= threshold)
+      .sort((a, b) => b.transaction_date.localeCompare(a.transaction_date));
+  };
+
+  const totalMonthlySpend = filteredTransactions.reduce((acc, curr) => acc + curr.total_amount, 0);
 
   // --- ハンドラー ---
 
@@ -375,7 +424,7 @@ export default function App() {
     if (!previewUrl) return;
 
     setIsScanning(true);
-    setScanStep('画像をアップロード中...');
+    setScanStep('レシートを送信中...');
 
     // 1. ローカル環境の場合はデモモードで即座に実行
     if (isLocal) {
@@ -386,7 +435,7 @@ export default function App() {
     // 2. 本物のAPIが設定されている場合は実通信
     if (apiUrl) {
       try {
-        setScanStep('S3へ直接アップロード中...');
+        setScanStep('レシートを送信中...');
         // 署名付きURL取得
         const nameParam = selectedFile ? selectedFile.name : 'receipt.jpg';
         const headers: HeadersInit = {};
@@ -405,7 +454,7 @@ export default function App() {
         const { upload_url, file_key } = await urlRes.json();
 
         // S3へPUT送信
-        setScanStep('S3へのアップロード完了。AI解析中...');
+        setScanStep('AIがレシートを解析中...');
         const uploadRes = await fetch(upload_url, {
           method: 'PUT',
           body: selectedFile,
@@ -416,7 +465,7 @@ export default function App() {
         if (!uploadRes.ok) throw new Error('S3へのアップロードに失敗しました');
 
         // AIで解析
-        setScanStep('AIによるレシートの文字起こし & 解析中...');
+        setScanStep('AIが品目と金額を読み取り中...');
         const analyzeHeaders: HeadersInit = { 'Content-Type': 'application/json' };
         if (token) {
           analyzeHeaders['Authorization'] = `Bearer ${token}`;
@@ -452,9 +501,9 @@ export default function App() {
   // デモ用のスキャンシミュレーション
   const runDemoScan = () => {
     setTimeout(() => {
-      setScanStep('AIマルチモーダルAPI接続中...');
+      setScanStep('AIがレシートを解析中...');
       setTimeout(() => {
-        setScanStep('品目と金額の構造化データを抽出中...');
+        setScanStep('AIが品目と金額を読み取り中...');
         setTimeout(() => {
           setIsScanning(false);
           // ランダムにリアルなレシートデータを生成
@@ -760,6 +809,7 @@ export default function App() {
       category_name: editData.category_name || 'その他',
       items: editData.items || [],
       tax_summary: editData.tax_summary || null,
+      receipt_s3_key: editData.receipt_s3_key,
       memo: editData.memo || 'AIスキャンによる登録',
       created_at: new Date().toISOString(),
     };
@@ -807,6 +857,63 @@ export default function App() {
     setPreviewUrl(null);
     setEditData(null);
     setActiveTab('dashboard');
+  };
+
+  // 取引データの更新
+  const handleUpdateTransaction = async () => {
+    if (!editData || !selectedTransaction) return;
+
+    const updatedTx: Transaction = {
+      id: selectedTransaction.id,
+      transaction_date: editData.transaction_date || selectedTransaction.transaction_date,
+      shop_name: editData.shop_name || selectedTransaction.shop_name,
+      total_amount: editData.total_amount || selectedTransaction.total_amount,
+      category_name: editData.category_name || selectedTransaction.category_name,
+      items: editData.items || selectedTransaction.items,
+      tax_summary:
+        editData.tax_summary !== undefined ? editData.tax_summary : selectedTransaction.tax_summary,
+      memo: editData.memo !== undefined ? editData.memo : selectedTransaction.memo,
+      receipt_s3_key: editData.receipt_s3_key || selectedTransaction.receipt_s3_key,
+      created_at: selectedTransaction.created_at || new Date().toISOString(),
+    };
+
+    if (apiUrl) {
+      try {
+        const headers: HeadersInit = { 'Content-Type': 'application/json' };
+        if (token) {
+          headers['Authorization'] = `Bearer ${token}`;
+        }
+        const encodedId = encodeURIComponent(selectedTransaction.id);
+        const response = await fetch(`${apiUrl}/api/transactions/${encodedId}`, {
+          method: 'PUT',
+          headers,
+          body: JSON.stringify({
+            transaction_date: updatedTx.transaction_date,
+            shop_name: updatedTx.shop_name,
+            total_amount: updatedTx.total_amount,
+            category_name: updatedTx.category_name,
+            items: updatedTx.items,
+            tax_summary: updatedTx.tax_summary,
+            receipt_s3_key: updatedTx.receipt_s3_key,
+            memo: updatedTx.memo,
+          }),
+        });
+        if (response.status === 401 && cognitoClientId) {
+          handleLogout();
+          return;
+        }
+        if (!response.ok) throw new Error('サーバーでの更新に失敗しました');
+      } catch (err: any) {
+        console.warn('サーバー更新エラー。ローカルのみに保存します:', err);
+      }
+    }
+
+    setTransactions(transactions.map(t => (t.id === selectedTransaction.id ? updatedTx : t)));
+
+    // リセット
+    setIsEditing(false);
+    setEditData(null);
+    setSelectedTransaction(null);
   };
 
   // 取引データの削除
@@ -1437,6 +1544,47 @@ export default function App() {
         {/* ==================== 1. DASHBOARD TAB ==================== */}
         {activeTab === 'dashboard' && (
           <div>
+            {/* 月選択セレクター */}
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                marginBottom: '16px',
+              }}
+            >
+              <h3 style={{ fontSize: '16px', fontWeight: 700, margin: 0, color: '#fff' }}>
+                収支ダッシュボード
+              </h3>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <Calendar size={14} color="var(--text-muted)" />
+                <select
+                  value={selectedMonth}
+                  onChange={e => setSelectedMonth(e.target.value)}
+                  style={{
+                    background: 'rgba(255, 255, 255, 0.05)',
+                    border: '1px solid rgba(255, 255, 255, 0.1)',
+                    borderRadius: '8px',
+                    color: '#fff',
+                    padding: '4px 8px',
+                    fontSize: '13px',
+                    fontWeight: 600,
+                    outline: 'none',
+                    cursor: 'pointer',
+                  }}
+                >
+                  {getSelectableMonths().map(m => {
+                    const [y, mm] = m.split('-');
+                    return (
+                      <option key={m} value={m} style={{ background: '#131520', color: '#fff' }}>
+                        {y}年{parseInt(mm)}月
+                      </option>
+                    );
+                  })}
+                </select>
+              </div>
+            </div>
+
             {/* 総支出カード */}
             <div
               className="glass-card"
@@ -1485,19 +1633,7 @@ export default function App() {
               >
                 ¥{totalMonthlySpend.toLocaleString()}
               </h2>
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                  fontSize: '12px',
-                  color: '#51cf66',
-                  fontWeight: 500,
-                }}
-              >
-                <TrendingUp size={16} />
-                <span>AIが支出カテゴリを自動最適化中</span>
-              </div>
+
             </div>
 
             {/* 予算ゲージカード */}
@@ -1596,7 +1732,7 @@ export default function App() {
                 }}
               >
                 <TrendingUp size={18} color="#8b5cf6" />
-                最近の支出推移 (日別)
+                {parseInt(selectedMonth.split('-')[1])}月の支出推移
               </h3>
               <div style={{ width: '100%', height: 160 }}>
                 <ResponsiveContainer>
@@ -1719,7 +1855,7 @@ export default function App() {
               )}
             </div>
 
-            {/* 最近の支出セクション */}
+            {/* 最近の支出セクション（直近2週間） */}
             <div className="glass-card" style={{ marginBottom: '20px' }}>
               <h3
                 style={{
@@ -1735,7 +1871,7 @@ export default function App() {
                 最近の支出
               </h3>
 
-              {transactions.length === 0 ? (
+              {getRecentTransactions().length === 0 ? (
                 <p
                   style={{
                     textAlign: 'center',
@@ -1744,14 +1880,14 @@ export default function App() {
                     fontSize: '13px',
                   }}
                 >
-                  登録された取引はありません
+                  最近の支出はありません
                 </p>
               ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                  {transactions.slice(0, 3).map(t => (
+                  {getRecentTransactions().slice(0, 5).map(t => (
                     <div
                       key={t.id}
-                      onClick={() => setSelectedTransaction(t)}
+                      onClick={() => { setSelectedTransaction(t); setEditData({ ...t }); }}
                       style={{
                         display: 'flex',
                         justifyContent: 'space-between',
@@ -1808,33 +1944,31 @@ export default function App() {
                     </div>
                   ))}
 
-                  {transactions.length > 3 && (
-                    <button
-                      onClick={() => setActiveTab('history')}
-                      style={{
-                        background: 'none',
-                        border: 'none',
-                        color: 'var(--accent-purple)',
-                        fontSize: '12px',
-                        fontWeight: 600,
-                        cursor: 'pointer',
-                        textAlign: 'center',
-                        marginTop: '4px',
-                        padding: '4px 0',
-                        display: 'block',
-                        width: '100%',
-                        transition: 'color 0.2s',
-                      }}
-                      onMouseEnter={e => {
-                        e.currentTarget.style.color = '#a78bfa';
-                      }}
-                      onMouseLeave={e => {
-                        e.currentTarget.style.color = 'var(--accent-purple)';
-                      }}
-                    >
-                      すべての履歴を見る ({transactions.length}件)
-                    </button>
-                  )}
+                  <button
+                    onClick={() => setActiveTab('history')}
+                    style={{
+                      background: 'none',
+                      border: 'none',
+                      color: 'var(--accent-purple)',
+                      fontSize: '12px',
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                      textAlign: 'center',
+                      marginTop: '4px',
+                      padding: '4px 0',
+                      display: 'block',
+                      width: '100%',
+                      transition: 'color 0.2s',
+                    }}
+                    onMouseEnter={e => {
+                      e.currentTarget.style.color = '#a78bfa';
+                    }}
+                    onMouseLeave={e => {
+                      e.currentTarget.style.color = 'var(--accent-purple)';
+                    }}
+                  >
+                    すべての履歴を見る ({transactions.length}件)
+                  </button>
                 </div>
               )}
             </div>
@@ -2526,7 +2660,7 @@ export default function App() {
               <div
                 className="glass-card"
                 key={t.id}
-                onClick={() => setSelectedTransaction(t)}
+                onClick={() => { setSelectedTransaction(t); setEditData({ ...t }); }}
                 style={{
                   padding: '16px 20px',
                   marginBottom: '12px',
@@ -2819,10 +2953,13 @@ export default function App() {
               <h3
                 style={{ fontSize: '18px', fontWeight: 700, color: '#fff', letterSpacing: '0.5px' }}
               >
-                取引明細詳細
+                取引明細の編集
               </h3>
               <button
-                onClick={() => setSelectedTransaction(null)}
+                onClick={() => {
+                  setSelectedTransaction(null);
+                  setEditData(null);
+                }}
                 style={{
                   background: 'rgba(255,255,255,0.05)',
                   border: 'none',
@@ -2847,290 +2984,420 @@ export default function App() {
               </button>
             </div>
 
-            {/* 基本情報カード */}
-            <div
-              style={{
-                background: 'rgba(255,255,255,0.02)',
-                borderRadius: '16px',
-                border: '1px solid rgba(255,255,255,0.04)',
-                padding: '16px',
-                marginBottom: '20px',
-              }}
-            >
-              <div
-                style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '10px' }}
-              >
-                <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>ご利用店舗</span>
-                <span style={{ fontSize: '14px', fontWeight: 600, color: '#fff' }}>
-                  {selectedTransaction.shop_name}
-                </span>
-              </div>
-              <div
-                style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '10px' }}
-              >
-                <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>利用日</span>
-                <span
-                  style={{
-                    fontSize: '14px',
-                    fontWeight: 600,
-                    color: '#fff',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '4px',
-                  }}
-                >
-                  <Calendar size={13} color="var(--text-muted)" />
-                  {selectedTransaction.transaction_date}
-                </span>
-              </div>
-              <div
-                style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '10px' }}
-              >
-                <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>カテゴリ</span>
-                <span
-                  style={{
-                    background: CATEGORY_COLORS[selectedTransaction.category_name] + '20',
-                    color: CATEGORY_COLORS[selectedTransaction.category_name] || '#868e96',
-                    fontSize: '11px',
-                    padding: '2px 8px',
-                    borderRadius: '10px',
-                    fontWeight: 600,
-                  }}
-                >
-                  {selectedTransaction.category_name}
-                </span>
-              </div>
-              {selectedTransaction.memo && (
-                <div
-                  style={{
-                    marginTop: '14px',
-                    borderTop: '1px solid rgba(255,255,255,0.04)',
-                    paddingTop: '12px',
-                  }}
-                >
-                  <span
-                    style={{
-                      fontSize: '11px',
-                      color: 'var(--text-muted)',
-                      display: 'block',
-                      marginBottom: '4px',
-                    }}
-                  >
-                    メモ
-                  </span>
-                  <p
-                    style={{
-                      fontSize: '12px',
-                      color: 'var(--text-secondary)',
-                      margin: 0,
-                      lineHeight: 1.4,
-                    }}
-                  >
-                    {selectedTransaction.memo}
-                  </p>
-                </div>
-              )}
-            </div>
-
-            {/* 品目内訳リスト */}
-            <div style={{ marginBottom: '24px' }}>
-              <label
-                style={{
-                  fontSize: '13px',
-                  color: 'var(--text-secondary)',
-                  fontWeight: 600,
-                  display: 'block',
-                  marginBottom: '10px',
-                }}
-              >
-                購入品目内訳
-              </label>
-              <div
-                style={{
-                  maxHeight: '180px',
-                  overflowY: 'auto',
-                  background: 'rgba(0,0,0,0.18)',
-                  borderRadius: '16px',
-                  border: '1px solid rgba(255,255,255,0.02)',
-                  padding: '12px 16px',
-                }}
-              >
-                {selectedTransaction.items && selectedTransaction.items.length > 0 ? (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                    {selectedTransaction.items.map((item, index) => (
-                      <div
-                        key={index}
-                        style={{
-                          display: 'flex',
-                          justifyContent: 'space-between',
-                          alignItems: 'center',
-                          fontSize: '13px',
-                          color: 'var(--text-primary)',
-                          paddingBottom:
-                            index < selectedTransaction.items.length - 1 ? '10px' : '0',
-                          borderBottom:
-                            index < selectedTransaction.items.length - 1
-                              ? '1px solid rgba(255,255,255,0.03)'
-                              : 'none',
-                        }}
-                      >
-                        <span style={{ fontWeight: 500 }}>
-                          {item.name || '未分類の商品'}
-                          {item.tax_marker && (
-                            <span
-                              style={{
-                                color: '#a78bfa',
-                                fontSize: '11px',
-                                marginLeft: '6px',
-                                fontWeight: 600,
-                              }}
-                            >
-                              {item.tax_marker}
-                            </span>
-                          )}
-                        </span>
-                        <span
-                          className="numeric"
-                          style={{ color: 'var(--text-secondary)', fontSize: '12px' }}
-                        >
-                          ¥{item.price.toLocaleString()} × {item.qty}
-                          {item.tax_rate !== undefined && item.tax_rate !== null && (
-                            <span
-                              style={{
-                                fontSize: '10px',
-                                color: 'var(--text-muted)',
-                                marginLeft: '4px',
-                              }}
-                            >
-                              ({item.tax_rate}%)
-                            </span>
-                          )}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <p
-                    style={{
-                      fontSize: '12px',
-                      color: 'var(--text-muted)',
-                      textAlign: 'center',
-                      margin: '12px 0',
-                    }}
-                  >
-                    品目データはありません。
-                  </p>
-                )}
-              </div>
-            </div>
-
-            {/* 消費税率別内訳 */}
-            {selectedTransaction.tax_summary && selectedTransaction.tax_summary.length > 0 && (
-              <div
-                style={{
-                  background: 'rgba(255, 255, 255, 0.015)',
-                  borderRadius: '16px',
-                  border: '1px solid rgba(255, 255, 255, 0.04)',
-                  padding: '12px 16px',
-                  marginBottom: '20px',
-                  fontSize: '12px',
-                }}
-              >
-                <div style={{ color: 'var(--text-muted)', marginBottom: '8px', fontWeight: 600 }}>
-                  消費税率別内訳
-                </div>
+            {editData ? (
+              /* 常時編集フォーム */
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                {/* 店舗名 */}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                  {selectedTransaction.tax_summary.map((tax, idx) => (
-                    <div
-                      key={idx}
+                  <label
+                    style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 600 }}
+                  >
+                    ご利用店舗
+                  </label>
+                  <input
+                    type="text"
+                    value={editData.shop_name || ''}
+                    onChange={e => setEditData({ ...editData, shop_name: e.target.value })}
+                    style={{
+                      background: 'rgba(255, 255, 255, 0.03)',
+                      border: '1px solid rgba(255, 255, 255, 0.08)',
+                      borderRadius: '12px',
+                      color: '#fff',
+                      padding: '10px 14px',
+                      fontSize: '14px',
+                      outline: 'none',
+                    }}
+                  />
+                </div>
+
+                {/* 日付とカテゴリ */}
+                <div style={{ display: 'flex', gap: '12px' }}>
+                  <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                    <label
+                      style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 600 }}
+                    >
+                      利用日
+                    </label>
+                    <input
+                      type="date"
+                      value={editData.transaction_date || ''}
+                      onChange={e => setEditData({ ...editData, transaction_date: e.target.value })}
                       style={{
-                        display: 'flex',
-                        justifyContent: 'space-between',
-                        alignItems: 'center',
+                        background: 'rgba(255, 255, 255, 0.03)',
+                        border: '1px solid rgba(255, 255, 255, 0.08)',
+                        borderRadius: '12px',
+                        color: '#fff',
+                        padding: '10px 14px',
+                        fontSize: '14px',
+                        outline: 'none',
+                        width: '100%',
+                      }}
+                    />
+                  </div>
+                  <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                    <label
+                      style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 600 }}
+                    >
+                      カテゴリ
+                    </label>
+                    <select
+                      value={editData.category_name || 'その他'}
+                      onChange={e => setEditData({ ...editData, category_name: e.target.value })}
+                      style={{
+                        background: 'rgba(255, 255, 255, 0.03)',
+                        border: '1px solid rgba(255, 255, 255, 0.08)',
+                        borderRadius: '12px',
+                        color: '#fff',
+                        padding: '10px 14px',
+                        fontSize: '14px',
+                        outline: 'none',
+                        height: '42px',
+                        cursor: 'pointer',
                       }}
                     >
-                      <span style={{ color: 'var(--text-secondary)' }}>
-                        {tax.tax_rate !== null ? `${tax.tax_rate}%対象` : '非課税対象'}
-                        {tax.tax_rate !== null &&
-                          ` (${tax.tax_included ? '内税' : '外税'}${tax.tax_rate === 8 ? '・軽' : ''})`}
-                      </span>
-                      <span style={{ color: '#fff', fontWeight: 500 }} className="numeric">
-                        対象額 ¥{tax.taxable_amount?.toLocaleString() || 0}
-                        {tax.tax_rate !== null && (
-                          <span style={{ color: '#a78bfa', fontSize: '11px', marginLeft: '6px' }}>
-                            (税 ¥{tax.tax_amount?.toLocaleString() || 0})
-                          </span>
-                        )}
-                      </span>
-                    </div>
-                  ))}
+                      <option value="食費" style={{ background: '#131520' }}>
+                        食費
+                      </option>
+                      <option value="日用品" style={{ background: '#131520' }}>
+                        日用品
+                      </option>
+                      <option value="交際費" style={{ background: '#131520' }}>
+                        交際費
+                      </option>
+                      <option value="交通費" style={{ background: '#131520' }}>
+                        交通費
+                      </option>
+                      <option value="エンタメ" style={{ background: '#131520' }}>
+                        エンタメ
+                      </option>
+                      <option value="その他" style={{ background: '#131520' }}>
+                        その他
+                      </option>
+                    </select>
+                  </div>
+                </div>
+
+                {/* 品目内訳リスト */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  <div
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                    }}
+                  >
+                    <label
+                      style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 600 }}
+                    >
+                      購入品目内訳
+                    </label>
+                    <button
+                      onClick={handleAddItem}
+                      style={{
+                        background: 'rgba(139, 92, 246, 0.1)',
+                        border: '1px solid rgba(139, 92, 246, 0.2)',
+                        borderRadius: '8px',
+                        padding: '2px 8px',
+                        fontSize: '11px',
+                        color: 'var(--accent-purple)',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      + 追加
+                    </button>
+                  </div>
+                  <div
+                    style={{
+                      maxHeight: '180px',
+                      overflowY: 'auto',
+                      background: 'rgba(0,0,0,0.18)',
+                      borderRadius: '16px',
+                      border: '1px solid rgba(255,255,255,0.02)',
+                      padding: '12px',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '8px',
+                    }}
+                  >
+                    {editData.items &&
+                      editData.items.map((item, index) => (
+                        <div
+                          key={index}
+                          style={{
+                            background: 'rgba(255,255,255,0.01)',
+                            border: '1px solid rgba(255,255,255,0.03)',
+                            borderRadius: '10px',
+                            padding: '8px',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: '6px',
+                          }}
+                        >
+                          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                            <input
+                              type="text"
+                              placeholder="品目名"
+                              value={item.name || ''}
+                              onChange={e => handleItemChange(index, 'name', e.target.value)}
+                              style={{
+                                flex: 1,
+                                background: 'transparent',
+                                border: 'none',
+                                borderBottom: '1px solid rgba(255,255,255,0.1)',
+                                color: '#fff',
+                                fontSize: '13px',
+                                outline: 'none',
+                                padding: '2px 0',
+                              }}
+                            />
+                            <button
+                              onClick={() => handleRemoveItem(index)}
+                              style={{
+                                background: 'none',
+                                border: 'none',
+                                color: '#f87171',
+                                cursor: 'pointer',
+                              }}
+                            >
+                              <Trash2 size={13} />
+                            </button>
+                          </div>
+                          <div
+                            style={{
+                              display: 'flex',
+                              gap: '8px',
+                              alignItems: 'center',
+                              justifyContent: 'space-between',
+                            }}
+                          >
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                              <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                                単価
+                              </span>
+                              <input
+                                type="number"
+                                value={item.price || 0}
+                                onChange={e => handleItemChange(index, 'price', e.target.value)}
+                                style={{
+                                  width: '60px',
+                                  background: 'transparent',
+                                  border: 'none',
+                                  borderBottom: '1px solid rgba(255,255,255,0.1)',
+                                  color: '#fff',
+                                  fontSize: '12px',
+                                  outline: 'none',
+                                  textAlign: 'right',
+                                }}
+                              />
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                              <button
+                                onClick={() => handleQtyAdjust(index, -1)}
+                                style={{
+                                  background: 'rgba(255,255,255,0.05)',
+                                  border: 'none',
+                                  borderRadius: '4px',
+                                  width: '18px',
+                                  height: '18px',
+                                  color: '#fff',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  fontSize: '12px',
+                                  cursor: 'pointer',
+                                }}
+                              >
+                                -
+                              </button>
+                              <span
+                                style={{ fontSize: '12px', minWidth: '14px', textAlign: 'center' }}
+                                className="numeric"
+                              >
+                                {item.qty}
+                              </span>
+                              <button
+                                onClick={() => handleQtyAdjust(index, 1)}
+                                style={{
+                                  background: 'rgba(255,255,255,0.05)',
+                                  border: 'none',
+                                  borderRadius: '4px',
+                                  width: '18px',
+                                  height: '18px',
+                                  color: '#fff',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  fontSize: '12px',
+                                  cursor: 'pointer',
+                                }}
+                              >
+                                +
+                              </button>
+                            </div>
+                            <select
+                              value={
+                                item.tax_rate === null
+                                  ? 'free'
+                                  : `${item.tax_rate}-${item.tax_included ? 'in' : 'ex'}`
+                              }
+                              onChange={e => handleTaxChange(index, e.target.value)}
+                              style={{
+                                background: 'rgba(255,255,255,0.05)',
+                                border: 'none',
+                                borderRadius: '4px',
+                                color: '#fff',
+                                fontSize: '11px',
+                                padding: '2px 4px',
+                                cursor: 'pointer',
+                                outline: 'none',
+                              }}
+                            >
+                              <option value="8-ex" style={{ background: '#131520' }}>
+                                8%外税
+                              </option>
+                              <option value="8-in" style={{ background: '#131520' }}>
+                                8%内税
+                              </option>
+                              <option value="10-ex" style={{ background: '#131520' }}>
+                                10%外税
+                              </option>
+                              <option value="10-in" style={{ background: '#131520' }}>
+                                10%内税
+                              </option>
+                              <option value="free" style={{ background: '#131520' }}>
+                                非課税
+                              </option>
+                            </select>
+                          </div>
+                        </div>
+                      ))}
+                    {(!editData.items || editData.items.length === 0) && (
+                      <p
+                        style={{
+                          textAlign: 'center',
+                          fontSize: '11px',
+                          color: 'var(--text-muted)',
+                          margin: '8px 0',
+                        }}
+                      >
+                        品目データはありません
+                      </p>
+                    )}
+                  </div>
+                </div>
+
+                {/* メモ */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  <label
+                    style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 600 }}
+                  >
+                    メモ
+                  </label>
+                  <textarea
+                    value={editData.memo || ''}
+                    onChange={e => setEditData({ ...editData, memo: e.target.value })}
+                    style={{
+                      background: 'rgba(255, 255, 255, 0.03)',
+                      border: '1px solid rgba(255, 255, 255, 0.08)',
+                      borderRadius: '12px',
+                      color: '#fff',
+                      padding: '10px 14px',
+                      fontSize: '13px',
+                      outline: 'none',
+                      resize: 'none',
+                      height: '50px',
+                    }}
+                  />
+                </div>
+
+                {/* 合計金額表示 */}
+                <div
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'baseline',
+                    marginTop: '4px',
+                    padding: '0 4px',
+                  }}
+                >
+                  <span style={{ fontSize: '14px', fontWeight: 600, color: '#fff' }}>
+                    合計金額
+                  </span>
+                  <span
+                    className="numeric"
+                    style={{ fontSize: '24px', fontWeight: 800, color: 'var(--accent-purple)' }}
+                  >
+                    ¥{(editData.total_amount || 0).toLocaleString()}
+                  </span>
+                </div>
+
+                {/* 操作ボタン */}
+                <div style={{ display: 'flex', gap: '10px', marginTop: '8px' }}>
+                  <button
+                    onClick={handleUpdateTransaction}
+                    className="btn-primary"
+                    style={{
+                      flex: 2,
+                      borderRadius: '16px',
+                      padding: '12px',
+                      fontSize: '13px',
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '6px',
+                    }}
+                  >
+                    <Check size={16} />
+                    保存する
+                  </button>
+                  <button
+                    onClick={() => {
+                      handleDeleteTransaction(selectedTransaction.id);
+                    }}
+                    style={{
+                      flex: 1,
+                      background: 'rgba(239, 68, 68, 0.1)',
+                      border: '1px solid rgba(239, 68, 68, 0.25)',
+                      borderRadius: '16px',
+                      color: '#f87171',
+                      padding: '12px',
+                      fontSize: '13px',
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '6px',
+                      transition: 'all 0.2s',
+                    }}
+                    onMouseEnter={e => {
+                      e.currentTarget.style.background = 'rgba(239, 68, 68, 0.2)';
+                      e.currentTarget.style.borderColor = 'rgba(239, 68, 68, 0.4)';
+                    }}
+                    onMouseLeave={e => {
+                      e.currentTarget.style.background = 'rgba(239, 68, 68, 0.1)';
+                      e.currentTarget.style.borderColor = 'rgba(239, 68, 68, 0.25)';
+                    }}
+                  >
+                    <Trash2 size={14} />
+                    削除
+                  </button>
+                  <button
+                    onClick={() => {
+                      setSelectedTransaction(null);
+                      setEditData(null);
+                    }}
+                    className="btn-secondary"
+                    style={{ flex: 1, borderRadius: '16px', padding: '12px', fontSize: '13px' }}
+                  >
+                    閉じる
+                  </button>
                 </div>
               </div>
-            )}
+            ) : null}
 
-            {/* 合計金額表示 */}
-            <div
-              style={{
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'baseline',
-                marginBottom: '28px',
-                padding: '0 4px',
-              }}
-            >
-              <span style={{ fontSize: '15px', fontWeight: 600, color: '#fff' }}>合計金額</span>
-              <span
-                className="numeric"
-                style={{ fontSize: '26px', fontWeight: 800, color: 'var(--accent-purple)' }}
-              >
-                ¥{selectedTransaction.total_amount.toLocaleString()}
-              </span>
-            </div>
-
-            {/* アクションボタン */}
-            <div style={{ display: 'flex', gap: '12px' }}>
-              <button
-                onClick={() => {
-                  handleDeleteTransaction(selectedTransaction.id);
-                }}
-                style={{
-                  flex: 1,
-                  background: 'rgba(239, 68, 68, 0.1)',
-                  border: '1px solid rgba(239, 68, 68, 0.25)',
-                  borderRadius: '16px',
-                  color: '#f87171',
-                  padding: '12px',
-                  fontSize: '13px',
-                  fontWeight: 600,
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: '6px',
-                  transition: 'all 0.2s',
-                }}
-                onMouseEnter={e => {
-                  e.currentTarget.style.background = 'rgba(239, 68, 68, 0.2)';
-                  e.currentTarget.style.borderColor = 'rgba(239, 68, 68, 0.4)';
-                  e.currentTarget.style.color = '#ef4444';
-                }}
-                onMouseLeave={e => {
-                  e.currentTarget.style.background = 'rgba(239, 68, 68, 0.1)';
-                  e.currentTarget.style.borderColor = 'rgba(239, 68, 68, 0.25)';
-                  e.currentTarget.style.color = '#f87171';
-                }}
-              >
-                <Trash2 size={16} />
-                この取引を削除
-              </button>
-              <button
-                onClick={() => setSelectedTransaction(null)}
-                className="btn-secondary"
-                style={{ flex: 1, borderRadius: '16px', padding: '12px', fontSize: '13px' }}
-              >
-                閉じる
-              </button>
-            </div>
           </div>
         </div>
       )}

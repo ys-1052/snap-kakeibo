@@ -46,9 +46,7 @@ if DYNAMODB_ENDPOINT_URL:
 else:
     dynamodb = boto3.resource("dynamodb", region_name=region_name)
 # Bedrock Runtimeクライアントの初期化 (東京リージョン ap-northeast-1)
-bedrock_client = boto3.client(
-    "bedrock-runtime", region_name=region_name
-)
+bedrock_client = boto3.client("bedrock-runtime", region_name=region_name)
 
 # 環境変数から設定を取得
 TABLE_NAME = os.environ.get("DYNAMODB_TABLE", "snap_kakeibo_transactions")
@@ -655,6 +653,52 @@ def list_transactions(current_user: dict = Depends(get_current_user)):  # noqa: 
         raise HTTPException(
             status_code=500, detail=f"Failed to query DynamoDB: {str(e)}"
         ) from e
+
+
+@app.put("/api/transactions/{transaction_id}")
+def update_transaction(
+    transaction_id: str,
+    payload: TransactionSaveRequest,
+    current_user: dict = Depends(get_current_user),  # noqa: B008
+):
+    """
+    指定された取引履歴を編集してDynamoDBに保存します。
+    """
+    try:
+        user_id = current_user["sub"]
+        table = dynamodb.Table(TABLE_NAME)
+
+        # 存在確認と所有権確認
+        response = table.get_item(Key={"PK": f"USER#{user_id}", "SK": transaction_id})
+        if "Item" not in response:
+            raise HTTPException(status_code=404, detail="Transaction not found")
+
+        existing_item = response["Item"]
+
+        item = {
+            "PK": f"USER#{user_id}",
+            "SK": transaction_id,
+            "transaction_date": payload.transaction_date,
+            "shop_name": payload.shop_name,
+            "total_amount": payload.total_amount,
+            "category_name": payload.category_name,
+            "items": [item.model_dump() for item in payload.items],
+            "tax_summary": [t.model_dump() for t in payload.tax_summary]
+            if payload.tax_summary
+            else [],
+            "receipt_s3_key": payload.receipt_s3_key
+            or existing_item.get("receipt_s3_key"),
+            "memo": payload.memo,
+            "created_at": existing_item.get("created_at")
+            or datetime.utcnow().isoformat(),
+            "updated_at": datetime.utcnow().isoformat(),
+        }
+
+        table.put_item(Item=item)
+        return {"status": "success", "message": f"Transaction {transaction_id} updated"}
+    except ClientError as e:
+        msg = f"Failed to update transaction in DynamoDB: {str(e)}"
+        raise HTTPException(status_code=500, detail=msg) from e
 
 
 @app.delete("/api/transactions/{transaction_id}")
