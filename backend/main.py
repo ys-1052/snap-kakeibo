@@ -617,7 +617,9 @@ def save_transaction(
             "shop_name": payload.shop_name,
             "total_amount": payload.total_amount,
             "category_name": payload.category_name,
-            "items": [item.model_dump() for item in payload.items] if payload.items else [],
+            "items": [item.model_dump() for item in payload.items]
+            if payload.items
+            else [],
             "tax_summary": [t.model_dump() for t in payload.tax_summary]
             if payload.tax_summary
             else [],
@@ -682,7 +684,9 @@ def update_transaction(
             "shop_name": payload.shop_name,
             "total_amount": payload.total_amount,
             "category_name": payload.category_name,
-            "items": [item.model_dump() for item in payload.items] if payload.items else [],
+            "items": [item.model_dump() for item in payload.items]
+            if payload.items
+            else [],
             "tax_summary": [t.model_dump() for t in payload.tax_summary]
             if payload.tax_summary
             else [],
