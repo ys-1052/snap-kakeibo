@@ -19,6 +19,7 @@ import {
   User,
   ChevronDown,
   ChevronUp,
+  RefreshCw,
 } from 'lucide-react';
 import {
   AreaChart,
@@ -202,6 +203,7 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'scan' | 'history' | 'settings'>(
     'dashboard'
   );
+  const [refreshKey, setRefreshKey] = useState(0);
   const [expandedItemIdx, setExpandedItemIdx] = useState<number | null>(null);
   const [transactions, setTransactions] = useState<Transaction[]>(() => {
     const saved = localStorage.getItem('snap_kakeibo_transactions');
@@ -304,7 +306,7 @@ export default function App() {
     };
 
     fetchTransactions();
-  }, [apiUrl, token, cognitoClientId]);
+  }, [apiUrl, token, cognitoClientId, refreshKey]);
 
   // SVGグラデーションを定義するために一度だけ描画するコンポーネント用
   const GradientDefs = () => (
@@ -1486,6 +1488,33 @@ export default function App() {
                 <span>{userRole}</span>
               </div>
             </div>
+          )}
+
+          {token && (
+            <button
+              onClick={() => setRefreshKey(prev => prev + 1)}
+              style={{
+                background: 'transparent',
+                border: 'none',
+                borderRadius: '20px',
+                width: '30px',
+                height: '30px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                cursor: 'pointer',
+                transition: 'all 0.2s ease',
+              }}
+              title="更新"
+              onMouseEnter={e => {
+                e.currentTarget.style.background = 'rgba(255, 255, 255, 0.05)';
+              }}
+              onMouseLeave={e => {
+                e.currentTarget.style.background = 'transparent';
+              }}
+            >
+              <RefreshCw size={12} color="var(--text-muted)" />
+            </button>
           )}
 
           {token && (
