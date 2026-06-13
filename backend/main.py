@@ -175,15 +175,13 @@ def get_current_user(
         import traceback
 
         traceback.print_exc()
-        raise HTTPException(status_code=401, detail=f"Invalid token: {str(e)}") from e
+        raise HTTPException(status_code=401, detail="Invalid token") from e
     except Exception as e:
         print(f"JWT Generic Auth Error: {e}")
         import traceback
 
         traceback.print_exc()
-        raise HTTPException(
-            status_code=401, detail=f"Authentication failed: {str(e)}"
-        ) from e
+        raise HTTPException(status_code=401, detail="Authentication failed") from e
 
 
 # ローカル環境起動時にテーブルがなければ自動作成する
@@ -334,7 +332,7 @@ def get_presigned_url(filename: str, current_user: dict = Depends(get_current_us
         return PresignedUrlResponse(upload_url=presigned_url, file_key=file_key)
     except ClientError as e:
         raise HTTPException(
-            status_code=500, detail=f"Failed to generate upload URL: {str(e)}"
+            status_code=500, detail="Failed to generate upload URL"
         ) from e
 
 
@@ -364,7 +362,7 @@ def analyze_receipt(
         image_bytes = response["Body"].read()
     except ClientError as e:
         raise HTTPException(
-            status_code=404, detail=f"Uploaded image not found in S3: {str(e)}"
+            status_code=404, detail="Uploaded image not found in S3"
         ) from e
 
     # 2. Bedrock (Nova Lite) を使用してマルチモーダル解析を実行
@@ -599,12 +597,12 @@ def analyze_receipt(
             except Exception as je:
                 print(f"[ERROR] JSON parsing also failed: {je}")
                 raise HTTPException(
-                    status_code=500, detail=f"AI output validation failed: {str(ve)}"
+                    status_code=500, detail="AI output validation failed"
                 ) from je
 
     except Exception as e:
         raise HTTPException(
-            status_code=500, detail=f"Bedrock AI processing failed: {str(e)}"
+            status_code=500, detail="Bedrock AI processing failed"
         ) from e
 
 
@@ -643,7 +641,7 @@ def save_transaction(
         return {"status": "success", "transaction_id": transaction_id}
     except ClientError as e:
         raise HTTPException(
-            status_code=500, detail=f"Failed to save transaction to DynamoDB: {str(e)}"
+            status_code=500, detail="Failed to save transaction to DynamoDB"
         ) from e
 
 
@@ -663,9 +661,7 @@ def list_transactions(current_user: dict = Depends(get_current_user)):  # noqa: 
         )
         return response.get("Items", [])
     except ClientError as e:
-        raise HTTPException(
-            status_code=500, detail=f"Failed to query DynamoDB: {str(e)}"
-        ) from e
+        raise HTTPException(status_code=500, detail="Failed to query DynamoDB") from e
 
 
 @app.put("/api/transactions/{transaction_id}")
@@ -712,7 +708,7 @@ def update_transaction(
         table.put_item(Item=item)
         return {"status": "success", "message": f"Transaction {transaction_id} updated"}
     except ClientError as e:
-        msg = f"Failed to update transaction in DynamoDB: {str(e)}"
+        msg = "Failed to update transaction in DynamoDB"
         raise HTTPException(status_code=500, detail=msg) from e
 
 
@@ -730,7 +726,7 @@ def delete_transaction(
         table.delete_item(Key={"PK": f"USER#{user_id}", "SK": transaction_id})
         return {"status": "success", "message": f"Transaction {transaction_id} deleted"}
     except ClientError as e:
-        msg = f"Failed to delete transaction from DynamoDB: {str(e)}"
+        msg = "Failed to delete transaction from DynamoDB"
         raise HTTPException(status_code=500, detail=msg) from e
 
 
