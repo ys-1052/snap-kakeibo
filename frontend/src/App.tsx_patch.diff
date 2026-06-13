@@ -1,0 +1,28 @@
+--- frontend/src/App.tsx
++++ frontend/src/App.tsx
+@@ -3175,6 +3175,8 @@
+                       padding: '10px 14px',
+                       fontSize: '14px',
+                       outline: 'none',
++                      width: '100%',
++                      boxSizing: 'border-box',
+                     }}
+                   />
+                 </div>
+@@ -3200,6 +3202,7 @@
+                         fontSize: '14px',
+                         outline: 'none',
+                         width: '100%',
++                        boxSizing: 'border-box',
+                       }}
+                     />
+                   </div>
+@@ -3219,6 +3222,8 @@
+                         fontSize: '14px',
+                         outline: 'none',
+                         height: '42px',
++                        width: '100%',
++                        boxSizing: 'border-box',
+                         cursor: 'pointer',
+                       }}
+                     >

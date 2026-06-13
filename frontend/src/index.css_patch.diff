@@ -1,0 +1,13 @@
+--- frontend/src/index.css
++++ frontend/src/index.css
+@@ -100,6 +100,10 @@
+   font-weight: 500;
+ }
+
++input[type="date"] {
++  box-sizing: border-box;
++}
++
+ .form-control {
+   width: 100%;
+   background: rgba(255, 255, 255, 0.05);

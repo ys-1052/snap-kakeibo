@@ -3178,8 +3178,6 @@ export default function App() {
                       padding: '10px 14px',
                       fontSize: '14px',
                       outline: 'none',
-                      width: '100%',
-                      boxSizing: 'border-box',
                     }}
                   />
                 </div>
@@ -3205,7 +3203,6 @@ export default function App() {
                         fontSize: '14px',
                         outline: 'none',
                         width: '100%',
-                        boxSizing: 'border-box',
                       }}
                     />
                   </div>
@@ -3227,8 +3224,6 @@ export default function App() {
                         fontSize: '14px',
                         outline: 'none',
                         height: '42px',
-                        width: '100%',
-                        boxSizing: 'border-box',
                         cursor: 'pointer',
                       }}
                     >
