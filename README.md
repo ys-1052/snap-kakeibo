@@ -27,7 +27,7 @@ SnapKakeibo は、レシート画像をマルチモーダルAIで解析し、日
 - **Ruff** (超高速Linter/Formatter)
 
 ### インフラ・デプロイ
-- **Serverless Framework 3** (AWSリソースの自動プロビジョニング)
+- **Serverless Framework 4** (AWSリソースの自動プロビジョニング)
 - **Amazon S3** (レシート画像の格納、Presigned URL経由での直接アップロード)
 - **Amazon DynamoDB** (PK: `user_id`, SK: `transaction_id` による超低コストデータベース)
 - **Amazon Bedrock** (マルチモーダルAI `amazon.nova-lite-v1:0` によるOCRレス構造化抽出)
@@ -100,14 +100,16 @@ Reactの **「設定(Settings)」タブ** の「AWS Lambda Function URL」欄に
 snap-kakeibo/
 ├── backend/                  # 🐍 Pythonバックエンド (AWS Lambda API)
 │   ├── main.py               # メインAPIロジック (FastAPI)
-│   ├── requirements.txt      # 依存ライブラリ
-│   └── serverless.yml        # Serverless Framework インフラ構成ファイル
+│   └── requirements.txt      # 依存ライブラリ
 ├── frontend/                 # ⚛️ Reactフロントエンド (Vite SPA)
 │   ├── src/
 │   │   ├── App.tsx           # アプリケーションのメイン画面・ステート
 │   │   ├── index.css         # スタイリング (プレミアムすりガラス・アニメーション)
 │   │   └── main.tsx          # エントリーポイント
 │   └── package.json          # プロジェクト依存関係とスクリプト
+├── infra/                    # 🚀 インフラ・デプロイ定義 (Serverless IaC)
+│   ├── requirements.txt      # backend/requirements.txt へのシンボリックリンク
+│   └── serverless.yml        # Serverless Framework構成ファイル
 ├── docker-compose.yml        # 🐳 ローカル開発環境の構成定義
 ├── Makefile                  # 🛠️ 開発・運用自動化用のメイクファイル
 └── README.md                 # 📄 本説明書 (本ファイル)

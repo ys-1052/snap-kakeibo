@@ -56,7 +56,7 @@ format-be:
 
 # インフラのデプロイ、フロントエンドのビルド、S3同期までを全自動で実行
 deploy:
-	cd backend && AWS_PROFILE=$(AWS_PROFILE) npx serverless deploy
+	cd infra && AWS_PROFILE=$(AWS_PROFILE) npx serverless deploy
 	python3 backend/update_env.py --stage prod --profile $(AWS_PROFILE)
 	@echo "フロントエンドをDocker環境でビルド中..."
 	docker compose run --rm frontend npm run build

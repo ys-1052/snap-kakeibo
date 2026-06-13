@@ -28,7 +28,7 @@
 - 解析AI: **Amazon Bedrock** (Converseマルチモーダル呼び出し)
 
 ### インフラ・デプロイ
-- **Serverless Framework 3** (`serverless.yml` によるAWSリソースの自動プロビジョニング)
+- **Serverless Framework 4** (`infra/serverless.yml` によるAWSリソースの自動プロビジョニング)
 - データベース: **Amazon DynamoDB** (PK: `user_id`, SK: `transaction_id`)
 - ストレージ: **Amazon S3** (レシート画像の格納、Presigned URL経由での直接アップロード)
 
@@ -42,8 +42,7 @@
  ├── backend/                 # 🐍 Pythonバックエンド (AWS Lambda API)
  │   ├── Dockerfile
  │   ├── main.py              # メインロジック
- │   ├── requirements.txt     # Python依存パッケージ
- │   └── serverless.yml       # Serverless Framework設定
+ │   └── requirements.txt     # Python依存パッケージ
  ├── frontend/                # ⚛️ Reactフロントエンド (Vite SPA)
  │   ├── Dockerfile
  │   ├── index.html
@@ -51,6 +50,9 @@
  │   ├── tsconfig.json
  │   ├── vite.config.ts
  │   └── src/                 # ソースコード (App.tsx, index.css)
+ ├── infra/                   # 🚀 インフラ・デプロイ定義 (Serverless IaC)
+ │   ├── requirements.txt     # backend/requirements.txt へのシンボリックリンク
+ │   └── serverless.yml       # Serverless Framework構成ファイル
  ├── docker-compose.yml       # 🐳 ローカル開発環境の統合
  └── AGENTS.md                # 📄 本ガイドライン (SSoT)
 ```
@@ -59,5 +61,5 @@
 
 ## 4. 開発ワークフロー
 - **ローカル起動**: `docker compose up --build` を実行し、`http://localhost:3000` で動作確認。
-- **本番デプロイ**: `backend/` にて `serverless deploy` を実行し、生成された Lambda Function URL をフロントエンド設定にバインドする。
+- **本番デプロイ**: `infra/` にて `serverless deploy` を実行し、生成された Lambda Function URL をフロントエンド設定にバインドする。
 - **行動規範**: 詳細な振る舞いは `.agent/rules/` に定義された各ルールを厳格に遵守してください。

@@ -45,20 +45,23 @@ provider:
           Resource:
             - arn:aws:bedrock:${self:provider.region}::foundation-model/nvidia.nemotron-nano-12b-v2
 
+package:
+  patterns:
+    - '!**'
+    - '../backend/main.py'
+
 functions:
   api:
-    handler: main.handler
+    handler: backend/main.handler
     url:
       cors: true # Lambda Function URLs レベルでCORSを有効化し、ブラウザからのプリフライト(OPTIONS)リクエストを通過させます
     timeout: 30 # Bedrock解析の待機を考慮して30秒に設定
     memorySize: 512
 
-plugins:
-  - serverless-python-requirements
-
 custom:
   pythonRequirements:
     dockerizePip: true # ライブラリをバイナリ互換のLinux環境向けにクロスビルド
+    requirementsPath: requirements.txt
 
 resources:
   Resources:
