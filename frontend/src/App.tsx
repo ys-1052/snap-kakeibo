@@ -911,7 +911,6 @@ export default function App() {
     setTransactions(transactions.map(t => (t.id === selectedTransaction.id ? updatedTx : t)));
 
     // リセット
-    setIsEditing(false);
     setEditData(null);
     setSelectedTransaction(null);
   };
@@ -1633,7 +1632,6 @@ export default function App() {
               >
                 ¥{totalMonthlySpend.toLocaleString()}
               </h2>
-
             </div>
 
             {/* 予算ゲージカード */}
@@ -1884,65 +1882,74 @@ export default function App() {
                 </p>
               ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                  {getRecentTransactions().slice(0, 5).map(t => (
-                    <div
-                      key={t.id}
-                      onClick={() => { setSelectedTransaction(t); setEditData({ ...t }); }}
-                      style={{
-                        display: 'flex',
-                        justifyContent: 'space-between',
-                        alignItems: 'center',
-                        padding: '10px 14px',
-                        background: 'rgba(255, 255, 255, 0.02)',
-                        border: '1px solid rgba(255, 255, 255, 0.03)',
-                        borderRadius: '12px',
-                        cursor: 'pointer',
-                        transition: 'all 0.2s',
-                      }}
-                      onMouseEnter={e => {
-                        e.currentTarget.style.background = 'rgba(255, 255, 255, 0.05)';
-                        e.currentTarget.style.borderColor = 'rgba(139, 92, 246, 0.2)';
-                        e.currentTarget.style.transform = 'translateX(2px)';
-                      }}
-                      onMouseLeave={e => {
-                        e.currentTarget.style.background = 'rgba(255, 255, 255, 0.02)';
-                        e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.03)';
-                        e.currentTarget.style.transform = 'translateX(0)';
-                      }}
-                    >
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                        <div
-                          style={{
-                            width: '8px',
-                            height: '8px',
-                            borderRadius: '50%',
-                            background: CATEGORY_COLORS[t.category_name] || '#868e96',
-                          }}
-                        />
-                        <div>
-                          <h4
-                            style={{
-                              fontSize: '13px',
-                              fontWeight: 600,
-                              color: 'var(--text-primary)',
-                              margin: 0,
-                            }}
-                          >
-                            {t.shop_name}
-                          </h4>
-                          <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-                            {t.transaction_date}
-                          </span>
-                        </div>
-                      </div>
-                      <span
-                        className="numeric"
-                        style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)' }}
+                  {getRecentTransactions()
+                    .slice(0, 5)
+                    .map(t => (
+                      <div
+                        key={t.id}
+                        onClick={() => {
+                          setSelectedTransaction(t);
+                          setEditData({ ...t });
+                        }}
+                        style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                          padding: '10px 14px',
+                          background: 'rgba(255, 255, 255, 0.02)',
+                          border: '1px solid rgba(255, 255, 255, 0.03)',
+                          borderRadius: '12px',
+                          cursor: 'pointer',
+                          transition: 'all 0.2s',
+                        }}
+                        onMouseEnter={e => {
+                          e.currentTarget.style.background = 'rgba(255, 255, 255, 0.05)';
+                          e.currentTarget.style.borderColor = 'rgba(139, 92, 246, 0.2)';
+                          e.currentTarget.style.transform = 'translateX(2px)';
+                        }}
+                        onMouseLeave={e => {
+                          e.currentTarget.style.background = 'rgba(255, 255, 255, 0.02)';
+                          e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.03)';
+                          e.currentTarget.style.transform = 'translateX(0)';
+                        }}
                       >
-                        ¥{t.total_amount.toLocaleString()}
-                      </span>
-                    </div>
-                  ))}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                          <div
+                            style={{
+                              width: '8px',
+                              height: '8px',
+                              borderRadius: '50%',
+                              background: CATEGORY_COLORS[t.category_name] || '#868e96',
+                            }}
+                          />
+                          <div>
+                            <h4
+                              style={{
+                                fontSize: '13px',
+                                fontWeight: 600,
+                                color: 'var(--text-primary)',
+                                margin: 0,
+                              }}
+                            >
+                              {t.shop_name}
+                            </h4>
+                            <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                              {t.transaction_date}
+                            </span>
+                          </div>
+                        </div>
+                        <span
+                          className="numeric"
+                          style={{
+                            fontSize: '14px',
+                            fontWeight: 700,
+                            color: 'var(--text-primary)',
+                          }}
+                        >
+                          ¥{t.total_amount.toLocaleString()}
+                        </span>
+                      </div>
+                    ))}
 
                   <button
                     onClick={() => setActiveTab('history')}
@@ -2660,7 +2667,10 @@ export default function App() {
               <div
                 className="glass-card"
                 key={t.id}
-                onClick={() => { setSelectedTransaction(t); setEditData({ ...t }); }}
+                onClick={() => {
+                  setSelectedTransaction(t);
+                  setEditData({ ...t });
+                }}
                 style={{
                   padding: '16px 20px',
                   marginBottom: '12px',
@@ -3320,9 +3330,7 @@ export default function App() {
                     padding: '0 4px',
                   }}
                 >
-                  <span style={{ fontSize: '14px', fontWeight: 600, color: '#fff' }}>
-                    合計金額
-                  </span>
+                  <span style={{ fontSize: '14px', fontWeight: 600, color: '#fff' }}>合計金額</span>
                   <span
                     className="numeric"
                     style={{ fontSize: '24px', fontWeight: 800, color: 'var(--accent-purple)' }}
@@ -3397,7 +3405,6 @@ export default function App() {
                 </div>
               </div>
             ) : null}
-
           </div>
         </div>
       )}

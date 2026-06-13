@@ -1,4 +1,4 @@
-.PHONY: up up-build down logs ps lint format lint-fe lint-be format-fe format-be deploy
+.PHONY: up up-build down logs ps lint format lint-fe lint-be format-fe format-be deploy deploy-fe deploy-be
 
 # ==========================================
 # 🐳 Docker Compose コマンド
@@ -72,3 +72,21 @@ deploy:
 	aws cloudfront create-invalidation --distribution-id $$CDN_ID --paths "/*" --profile $(AWS_PROFILE) --region ap-northeast-1 > /dev/null
 	@echo "\n🎉 デプロイ完了！アプリケーションURL:"
 	@aws cloudformation describe-stacks --stack-name snap-kakeibo-prod --query "Stacks[0].Outputs[?OutputKey=='FrontendUrl'].OutputValue" --output text --profile $(AWS_PROFILE) --region ap-northeast-1
+
+# フロントエンドのみデプロイ (App.tsx 等 フロントの変更のみの時)
+deploy-fe:
+	@echo "フロントエンドをDocker環境でビルド中..."
+	docker compose run --rm frontend npm run build
+	@echo "ビルド済み静的ファイルを本番S3バケットにアップロード中..."
+	@FRONTEND_BUCKET=$$(aws cloudformation describe-stacks --stack-name snap-kakeibo-prod --query "Stacks[0].Outputs[?OutputKey=='FrontendBucketName'].OutputValue" --output text --profile $(AWS_PROFILE) --region ap-northeast-1) && \
+	aws s3 sync frontend/dist s3://$$FRONTEND_BUCKET --delete --profile $(AWS_PROFILE) --region ap-northeast-1
+	@echo "CloudFrontのCDNキャッシュをクリア中..."
+	@CDN_ID=$$(aws cloudformation describe-stacks --stack-name snap-kakeibo-prod --query "Stacks[0].Outputs[?OutputKey=='FrontendCDNId'].OutputValue" --output text --profile $(AWS_PROFILE) --region ap-northeast-1) && \
+	aws cloudfront create-invalidation --distribution-id $$CDN_ID --paths "/*" --profile $(AWS_PROFILE) --region ap-northeast-1 > /dev/null
+	@echo "\n✨ フロントエンドのデプロイ完了！"
+
+# バックエンドのみデプロイ (main.py 等 バックの変更のみの時)
+deploy-be:
+	@echo "インフラ（Lambda / API Gateway / DynamoDB）を更新中..."
+	cd infra && AWS_PROFILE=$(AWS_PROFILE) npx serverless deploy
+	@echo "\n✨ バックエンドのデプロイ完了！"
