@@ -277,7 +277,7 @@ class TransactionSaveRequest(BaseModel):
     shop_name: Optional[str] = Field("不明な店舗")
     total_amount: Optional[int] = Field(0)
     category_name: Optional[str] = Field("その他")
-    items: List[ReceiptItem] = Field(default_factory=list)
+    items: Optional[List[ReceiptItem]] = Field(default_factory=list)
     tax_summary: Optional[List[TaxSummaryItem]] = Field(default_factory=list)
     receipt_s3_key: Optional[str] = None
     memo: Optional[str] = ""
@@ -617,7 +617,7 @@ def save_transaction(
             "shop_name": payload.shop_name,
             "total_amount": payload.total_amount,
             "category_name": payload.category_name,
-            "items": [item.model_dump() for item in payload.items],
+            "items": [item.model_dump() for item in payload.items] if payload.items else [],
             "tax_summary": [t.model_dump() for t in payload.tax_summary]
             if payload.tax_summary
             else [],
@@ -682,7 +682,7 @@ def update_transaction(
             "shop_name": payload.shop_name,
             "total_amount": payload.total_amount,
             "category_name": payload.category_name,
-            "items": [item.model_dump() for item in payload.items],
+            "items": [item.model_dump() for item in payload.items] if payload.items else [],
             "tax_summary": [t.model_dump() for t in payload.tax_summary]
             if payload.tax_summary
             else [],

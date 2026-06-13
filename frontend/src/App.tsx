@@ -2048,6 +2048,40 @@ export default function App() {
                     対応形式: JPG, JPEG, PNG
                   </span>
                 </label>
+
+                <div style={{ marginTop: '24px', paddingTop: '24px', borderTop: '1px solid rgba(255,255,255,0.1)' }}>
+                  <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '12px' }}>
+                    または、レシートがない場合
+                  </p>
+                  <button
+                    onClick={() => {
+                      const today = new Date().toISOString().split('T')[0];
+                      setEditData({
+                        transaction_date: today,
+                        shop_name: '',
+                        total_amount: 0,
+                        category_name: 'その他',
+                        items: [],
+                        tax_summary: [],
+                        memo: '',
+                      });
+                    }}
+                    className="btn-secondary"
+                    style={{
+                      width: '100%',
+                      padding: '12px',
+                      borderRadius: '16px',
+                      fontSize: '14px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '8px',
+                    }}
+                  >
+                    <Plus size={18} />
+                    手動で入力する
+                  </button>
+                </div>
               </div>
             )}
 
