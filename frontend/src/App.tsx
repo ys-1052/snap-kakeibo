@@ -2260,7 +2260,7 @@ export default function App() {
                   />
                 </div>
 
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                <div style={{ display: 'flex', flexDirection: 'column' }}>
                   <div className="form-group">
                     <label>日付</label>
                     <input
