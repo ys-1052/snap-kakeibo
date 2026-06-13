@@ -35,10 +35,20 @@ import { CONFIG } from './config';
 
 // --- モックデータ & 型定義 ---
 
+interface TaxSummaryItem {
+  tax_rate: number | null;
+  taxable_amount: number | null;
+  tax_amount: number | null;
+  tax_included: boolean | null;
+}
+
 interface ReceiptItem {
   name: string;
   price: number;
   qty: number;
+  tax_rate?: number | null;
+  tax_included?: boolean | null;
+  tax_marker?: string | null;
 }
 
 interface Transaction {
@@ -48,6 +58,7 @@ interface Transaction {
   total_amount: number;
   category_name: string;
   items: ReceiptItem[];
+  tax_summary?: TaxSummaryItem[] | null;
   receipt_s3_key?: string;
   memo?: string;
   created_at: string;
@@ -67,14 +78,36 @@ const INITIAL_TRANSACTIONS: Transaction[] = [
     id: 'mock-1',
     transaction_date: '2026-05-20',
     shop_name: 'スーパーライフ 渋谷店',
-    total_amount: 3420,
+    total_amount: 2983,
     category_name: '食費',
     items: [
-      { name: '産直こだわり牛乳', price: 248, qty: 1 },
-      { name: '国産黒毛和牛バラ', price: 1980, qty: 1 },
-      { name: '有機レタス', price: 198, qty: 1 },
-      { name: 'こだわり十勝ヨーグルト', price: 168, qty: 2 },
+      {
+        name: '産直こだわり牛乳',
+        price: 248,
+        qty: 1,
+        tax_rate: 8,
+        tax_included: false,
+        tax_marker: '※',
+      },
+      {
+        name: '国産黒毛和牛バラ',
+        price: 1980,
+        qty: 1,
+        tax_rate: 8,
+        tax_included: false,
+        tax_marker: '※',
+      },
+      { name: '有機レタス', price: 198, qty: 1, tax_rate: 8, tax_included: false, tax_marker: '※' },
+      {
+        name: 'こだわり十勝ヨーグルト',
+        price: 168,
+        qty: 2,
+        tax_rate: 8,
+        tax_included: false,
+        tax_marker: '※',
+      },
     ],
+    tax_summary: [{ tax_rate: 8, taxable_amount: 2762, tax_amount: 221, tax_included: false }],
     memo: '今週のまとめ買い',
     created_at: '2026-05-20T18:30:00Z',
   },
@@ -82,13 +115,35 @@ const INITIAL_TRANSACTIONS: Transaction[] = [
     id: 'mock-2',
     transaction_date: '2026-05-21',
     shop_name: 'マツモトキヨシ',
-    total_amount: 1850,
+    total_amount: 1786,
     category_name: '日用品',
     items: [
-      { name: 'クリニカ ハミガキ', price: 328, qty: 1 },
-      { name: 'エリエール ティシュー 5個パック', price: 498, qty: 1 },
-      { name: 'アタック抗菌EX 詰替', price: 798, qty: 1 },
+      {
+        name: 'クリニカ ハミガキ',
+        price: 328,
+        qty: 1,
+        tax_rate: 10,
+        tax_included: false,
+        tax_marker: null,
+      },
+      {
+        name: 'エリエール ティシュー 5個パック',
+        price: 498,
+        qty: 1,
+        tax_rate: 10,
+        tax_included: false,
+        tax_marker: null,
+      },
+      {
+        name: 'アタック抗菌EX 詰替',
+        price: 798,
+        qty: 1,
+        tax_rate: 10,
+        tax_included: false,
+        tax_marker: null,
+      },
     ],
+    tax_summary: [{ tax_rate: 10, taxable_amount: 1624, tax_amount: 162, tax_included: false }],
     memo: '日用品の補充',
     created_at: '2026-05-21T12:15:00Z',
   },
@@ -99,9 +154,24 @@ const INITIAL_TRANSACTIONS: Transaction[] = [
     total_amount: 680,
     category_name: '交際費',
     items: [
-      { name: 'スターバックスラテ Tall', price: 490, qty: 1 },
-      { name: 'チョコレートクッキー', price: 190, qty: 1 },
+      {
+        name: 'スターバックスラテ Tall',
+        price: 490,
+        qty: 1,
+        tax_rate: 10,
+        tax_included: true,
+        tax_marker: null,
+      },
+      {
+        name: 'チョコレートクッキー',
+        price: 190,
+        qty: 1,
+        tax_rate: 10,
+        tax_included: true,
+        tax_marker: null,
+      },
     ],
+    tax_summary: [{ tax_rate: 10, taxable_amount: 680, tax_amount: 62, tax_included: true }],
     memo: 'カフェ勉強',
     created_at: '2026-05-22T15:40:00Z',
   },
@@ -111,7 +181,17 @@ const INITIAL_TRANSACTIONS: Transaction[] = [
     shop_name: 'JR東日本 (Suicaチャージ)',
     total_amount: 2000,
     category_name: '交通費',
-    items: [{ name: 'Suica チャージ', price: 2000, qty: 1 }],
+    items: [
+      {
+        name: 'Suica チャージ',
+        price: 2000,
+        qty: 1,
+        tax_rate: null,
+        tax_included: true,
+        tax_marker: null,
+      },
+    ],
+    tax_summary: [{ tax_rate: null, taxable_amount: 2000, tax_amount: 0, tax_included: true }],
     memo: '移動用',
     created_at: '2026-05-23T09:00:00Z',
   },
@@ -130,6 +210,13 @@ export default function App() {
 
   // API・Cognito認証設定 (config.tsからロード)
   const apiUrl = CONFIG.API_URL || 'http://localhost:8000';
+  const isLocal =
+    CONFIG.COGNITO_CLIENT_ID === 'local' ||
+    !CONFIG.API_URL ||
+    apiUrl.includes('localhost') ||
+    apiUrl.includes('127.0.0.1') ||
+    window.location.hostname === 'localhost' ||
+    window.location.hostname === '127.0.0.1';
   const cognitoClientId = CONFIG.COGNITO_CLIENT_ID || '';
   const cognitoRegion = CONFIG.COGNITO_REGION || 'ap-northeast-1';
 
@@ -288,7 +375,13 @@ export default function App() {
     setIsScanning(true);
     setScanStep('画像をアップロード中...');
 
-    // 1. 本物のAPIが設定されている場合は実通信
+    // 1. ローカル環境の場合はデモモードで即座に実行
+    if (isLocal) {
+      runDemoScan();
+      return;
+    }
+
+    // 2. 本物のAPIが設定されている場合は実通信
     if (apiUrl) {
       try {
         setScanStep('S3へ直接アップロード中...');
@@ -363,29 +456,91 @@ export default function App() {
         setTimeout(() => {
           setIsScanning(false);
           // ランダムにリアルなレシートデータを生成
-          const demoReceipts = [
+          const demoReceipts: Omit<Transaction, 'id' | 'created_at'>[] = [
             {
               shop_name: 'セブン-イレブン 渋谷3丁目店',
               transaction_date: new Date().toISOString().split('T')[0],
-              total_amount: 1120,
+              total_amount: 1149,
               category_name: '食費',
               items: [
-                { name: 'サラダチキン プレーン', price: 238, qty: 1 },
-                { name: 'もっちり7種具材のサラダ', price: 398, qty: 1 },
-                { name: 'こだわり十勝ヨーグルト', price: 168, qty: 1 },
-                { name: 'い・ろ・は・す 550ml', price: 120, qty: 1 },
-                { name: 'ブラック無糖缶', price: 140, qty: 1 },
+                {
+                  name: 'サラダチキン プレーン',
+                  price: 238,
+                  qty: 1,
+                  tax_rate: 8,
+                  tax_included: false,
+                  tax_marker: '※',
+                },
+                {
+                  name: 'もっちり7種具材のサラダ',
+                  price: 398,
+                  qty: 1,
+                  tax_rate: 8,
+                  tax_included: false,
+                  tax_marker: '※',
+                },
+                {
+                  name: 'こだわり十勝ヨーグルト',
+                  price: 168,
+                  qty: 1,
+                  tax_rate: 8,
+                  tax_included: false,
+                  tax_marker: '※',
+                },
+                {
+                  name: 'い・ろ・は・す 550ml',
+                  price: 120,
+                  qty: 1,
+                  tax_rate: 8,
+                  tax_included: false,
+                  tax_marker: '※',
+                },
+                {
+                  name: 'ブラック無糖缶',
+                  price: 140,
+                  qty: 1,
+                  tax_rate: 8,
+                  tax_included: false,
+                  tax_marker: '※',
+                },
+              ],
+              tax_summary: [
+                { tax_rate: 8, taxable_amount: 1064, tax_amount: 85, tax_included: false },
               ],
             },
             {
               shop_name: 'マツモトキヨシ 新宿東口店',
               transaction_date: new Date().toISOString().split('T')[0],
-              total_amount: 2540,
+              total_amount: 2794,
               category_name: '日用品',
               items: [
-                { name: '超立体マスク 30枚入', price: 1280, qty: 1 },
-                { name: 'キレイキレイ 泡ハンドソープ', price: 420, qty: 2 },
-                { name: '除菌アルコールウェット', price: 210, qty: 2 },
+                {
+                  name: '超立体マスク 30枚入',
+                  price: 1280,
+                  qty: 1,
+                  tax_rate: 10,
+                  tax_included: false,
+                  tax_marker: null,
+                },
+                {
+                  name: 'キレイキレイ 泡ハンドソープ',
+                  price: 420,
+                  qty: 2,
+                  tax_rate: 10,
+                  tax_included: false,
+                  tax_marker: null,
+                },
+                {
+                  name: '除菌アルコールウェット',
+                  price: 210,
+                  qty: 2,
+                  tax_rate: 10,
+                  tax_included: false,
+                  tax_marker: null,
+                },
+              ],
+              tax_summary: [
+                { tax_rate: 10, taxable_amount: 2540, tax_amount: 254, tax_included: false },
               ],
             },
           ];
@@ -396,14 +551,114 @@ export default function App() {
     }, 800);
   };
 
+  // --- 消費税・合計額 自動計算ヘルパー ---
+  const calculateTotalAmountFromItems = (items: ReceiptItem[]): number => {
+    let sum8 = 0;
+    let sum10 = 0;
+    let sumOther = 0;
+
+    items.forEach(item => {
+      const itemTotal = (item.price || 0) * (item.qty || 1);
+      if (item.tax_included) {
+        sumOther += itemTotal;
+      } else if (item.tax_rate === 8) {
+        sum8 += itemTotal;
+      } else if (item.tax_rate === 10) {
+        sum10 += itemTotal;
+      } else {
+        // デフォルトは外税10%として扱う、または tax_rate 未定義なら非課税
+        if (item.tax_rate === undefined) {
+          sumOther += itemTotal;
+        } else {
+          sumOther += itemTotal;
+        }
+      }
+    });
+
+    const tax8 = Math.floor(sum8 * 0.08);
+    const tax10 = Math.floor(sum10 * 0.1);
+
+    return sum8 + tax8 + sum10 + tax10 + sumOther;
+  };
+
+  const generateTaxSummaryFromItems = (items: ReceiptItem[]): TaxSummaryItem[] => {
+    let sum8Ex = 0;
+    let sum10Ex = 0;
+    let sum8In = 0;
+    let sum10In = 0;
+    let sumFree = 0;
+
+    items.forEach(item => {
+      const itemTotal = (item.price || 0) * (item.qty || 1);
+      if (item.tax_rate === 8) {
+        if (item.tax_included) sum8In += itemTotal;
+        else sum8Ex += itemTotal;
+      } else if (item.tax_rate === 10) {
+        if (item.tax_included) sum10In += itemTotal;
+        else sum10Ex += itemTotal;
+      } else if (item.tax_rate === 0 || item.tax_rate === null) {
+        sumFree += itemTotal;
+      } else {
+        sumFree += itemTotal;
+      }
+    });
+
+    const summary: TaxSummaryItem[] = [];
+
+    if (sum8Ex > 0) {
+      summary.push({
+        tax_rate: 8,
+        taxable_amount: sum8Ex,
+        tax_amount: Math.floor(sum8Ex * 0.08),
+        tax_included: false,
+      });
+    }
+    if (sum8In > 0) {
+      summary.push({
+        tax_rate: 8,
+        taxable_amount: sum8In,
+        tax_amount: Math.floor((sum8In * 8) / 108),
+        tax_included: true,
+      });
+    }
+    if (sum10Ex > 0) {
+      summary.push({
+        tax_rate: 10,
+        taxable_amount: sum10Ex,
+        tax_amount: Math.floor(sum10Ex * 0.1),
+        tax_included: false,
+      });
+    }
+    if (sum10In > 0) {
+      summary.push({
+        tax_rate: 10,
+        taxable_amount: sum10In,
+        tax_amount: Math.floor((sum10In * 10) / 110),
+        tax_included: true,
+      });
+    }
+    if (sumFree > 0) {
+      summary.push({
+        tax_rate: null,
+        taxable_amount: sumFree,
+        tax_amount: 0,
+        tax_included: true,
+      });
+    }
+
+    return summary;
+  };
+
   // 品目の更新と合計金額の自動計算
   const updateItemsAndTotal = (updatedItems: ReceiptItem[]) => {
     if (!editData) return;
-    const newTotal = updatedItems.reduce((acc, item) => acc + item.price * item.qty, 0);
+    const newTotal = calculateTotalAmountFromItems(updatedItems);
+    const newSummary = generateTaxSummaryFromItems(updatedItems);
     setEditData({
       ...editData,
       items: updatedItems,
       total_amount: newTotal,
+      tax_summary: newSummary,
     });
   };
 
@@ -423,10 +678,52 @@ export default function App() {
     updateItemsAndTotal(updatedItems);
   };
 
+  // 税区分の切り替え
+  const handleTaxChange = (index: number, taxOption: string) => {
+    if (!editData || !editData.items) return;
+    const updatedItems = [...editData.items];
+    let tax_rate: number | null = null;
+    let tax_included = true;
+    let tax_marker: string | null = null;
+
+    if (taxOption === '8-ex') {
+      tax_rate = 8;
+      tax_included = false;
+      tax_marker = '※';
+    } else if (taxOption === '8-in') {
+      tax_rate = 8;
+      tax_included = true;
+      tax_marker = '※';
+    } else if (taxOption === '10-ex') {
+      tax_rate = 10;
+      tax_included = false;
+      tax_marker = null;
+    } else if (taxOption === '10-in') {
+      tax_rate = 10;
+      tax_included = true;
+      tax_marker = null;
+    } else {
+      tax_rate = null;
+      tax_included = true;
+      tax_marker = null;
+    }
+
+    updatedItems[index] = {
+      ...updatedItems[index],
+      tax_rate,
+      tax_included,
+      tax_marker,
+    };
+    updateItemsAndTotal(updatedItems);
+  };
+
   // 品目の新規追加
   const handleAddItem = () => {
     if (!editData) return;
-    const updatedItems = [...(editData.items || []), { name: '', price: 0, qty: 1 }];
+    const updatedItems = [
+      ...(editData.items || []),
+      { name: '', price: 0, qty: 1, tax_rate: 8, tax_included: false, tax_marker: '※' },
+    ];
     updateItemsAndTotal(updatedItems);
   };
 
@@ -448,6 +745,7 @@ export default function App() {
       total_amount: editData.total_amount || 0,
       category_name: editData.category_name || 'その他',
       items: editData.items || [],
+      tax_summary: editData.tax_summary || null,
       memo: editData.memo || 'AIスキャンによる登録',
       created_at: new Date().toISOString(),
     };
@@ -468,6 +766,7 @@ export default function App() {
             total_amount: newTx.total_amount,
             category_name: newTx.category_name,
             items: newTx.items,
+            tax_summary: newTx.tax_summary,
             receipt_s3_key: editData.receipt_s3_key,
             memo: newTx.memo,
           }),
@@ -1577,7 +1876,7 @@ export default function App() {
                       <span>{scanStep}</span>
                     </div>
                     <p style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-                      Gemini APIが日本語レシートを解析し、構造化しています。数秒お待ちください...
+                      AIがレシートを解析し、構造化しています。数秒お待ちください...
                     </p>
                   </div>
                 ) : (
@@ -1735,7 +2034,7 @@ export default function App() {
                             value={item.name}
                             onChange={e => handleItemChange(idx, 'name', e.target.value)}
                             style={{
-                              flex: 3,
+                              flex: 2.5,
                               background: 'rgba(255,255,255,0.03)',
                               border: '1px solid rgba(255,255,255,0.06)',
                               borderRadius: '8px',
@@ -1743,87 +2042,110 @@ export default function App() {
                               padding: '6px 10px',
                               fontSize: '13px',
                               outline: 'none',
+                              minWidth: 0,
                             }}
                           />
 
                           {/* 単価入力 */}
-                          <div
+                          <input
+                            type="text"
+                            inputMode="numeric"
+                            placeholder="単価"
+                            value={item.price || ''}
+                            onChange={e => handleItemChange(idx, 'price', e.target.value)}
                             style={{
-                              flex: 1.5,
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: '2px',
-                              position: 'relative',
+                              flex: 1.2,
+                              background: 'rgba(255,255,255,0.03)',
+                              border: '1px solid rgba(255,255,255,0.06)',
+                              borderRadius: '8px',
+                              color: '#fff',
+                              padding: '6px 4px',
+                              fontSize: '13px',
+                              outline: 'none',
+                              textAlign: 'right',
+                              minWidth: 0,
                             }}
-                          >
-                            <span
-                              style={{
-                                fontSize: '11px',
-                                color: 'var(--text-muted)',
-                                position: 'absolute',
-                                left: '8px',
-                              }}
-                            >
-                              ¥
-                            </span>
-                            <input
-                              type="number"
-                              placeholder="単価"
-                              value={item.price || ''}
-                              onChange={e => handleItemChange(idx, 'price', e.target.value)}
-                              style={{
-                                width: '100%',
-                                background: 'rgba(255,255,255,0.03)',
-                                border: '1px solid rgba(255,255,255,0.06)',
-                                borderRadius: '8px',
-                                color: '#fff',
-                                padding: '6px 6px 6px 18px',
-                                fontSize: '13px',
-                                outline: 'none',
-                                textAlign: 'right',
-                              }}
-                            />
-                          </div>
+                          />
 
                           {/* 数量入力 */}
-                          <div
+                          <input
+                            type="text"
+                            inputMode="numeric"
+                            placeholder="数"
+                            value={item.qty || ''}
+                            onChange={e => handleItemChange(idx, 'qty', e.target.value)}
                             style={{
-                              flex: 1,
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: '2px',
-                              position: 'relative',
+                              flex: 0.8,
+                              background: 'rgba(255,255,255,0.03)',
+                              border: '1px solid rgba(255,255,255,0.06)',
+                              borderRadius: '8px',
+                              color: '#fff',
+                              padding: '6px 4px',
+                              fontSize: '13px',
+                              outline: 'none',
+                              textAlign: 'center',
+                              minWidth: 0,
+                            }}
+                          />
+
+                          {/* 税区分・税率選択 */}
+                          <select
+                            value={
+                              item.tax_rate === 8
+                                ? item.tax_included
+                                  ? '8-in'
+                                  : '8-ex'
+                                : item.tax_rate === 10
+                                  ? item.tax_included
+                                    ? '10-in'
+                                    : '10-ex'
+                                  : 'free'
+                            }
+                            onChange={e => handleTaxChange(idx, e.target.value)}
+                            style={{
+                              flex: 1.5,
+                              background: 'rgba(255,255,255,0.03)',
+                              border: '1px solid rgba(255,255,255,0.06)',
+                              borderRadius: '8px',
+                              color: 'var(--text-secondary)',
+                              padding: '6px 4px',
+                              fontSize: '11px',
+                              outline: 'none',
+                              cursor: 'pointer',
+                              minWidth: 0,
                             }}
                           >
-                            <span
-                              style={{
-                                fontSize: '11px',
-                                color: 'var(--text-muted)',
-                                position: 'absolute',
-                                left: '6px',
-                              }}
+                            <option
+                              value="8-ex"
+                              style={{ background: 'var(--bg-card)', color: '#fff' }}
                             >
-                              x
-                            </span>
-                            <input
-                              type="number"
-                              min="1"
-                              placeholder="数"
-                              value={item.qty || ''}
-                              onChange={e => handleItemChange(idx, 'qty', e.target.value)}
-                              style={{
-                                width: '100%',
-                                background: 'rgba(255,255,255,0.03)',
-                                border: '1px solid rgba(255,255,255,0.06)',
-                                borderRadius: '8px',
-                                color: '#fff',
-                                padding: '6px 6px 6px 16px',
-                                fontSize: '13px',
-                                outline: 'none',
-                                textAlign: 'center',
-                              }}
-                            />
-                          </div>
+                              8% (外税)
+                            </option>
+                            <option
+                              value="8-in"
+                              style={{ background: 'var(--bg-card)', color: '#fff' }}
+                            >
+                              8% (内税)
+                            </option>
+                            <option
+                              value="10-ex"
+                              style={{ background: 'var(--bg-card)', color: '#fff' }}
+                            >
+                              10% (外税)
+                            </option>
+                            <option
+                              value="10-in"
+                              style={{ background: 'var(--bg-card)', color: '#fff' }}
+                            >
+                              10% (内税)
+                            </option>
+                            <option
+                              value="free"
+                              style={{ background: 'var(--bg-card)', color: '#fff' }}
+                            >
+                              非課税/免税
+                            </option>
+                          </select>
 
                           {/* 削除ボタン */}
                           <button
@@ -1873,7 +2195,28 @@ export default function App() {
                 </div>
 
                 <div className="form-group" style={{ marginTop: '20px' }}>
-                  <label>合計金額</label>
+                  <label style={{ color: 'var(--text-secondary)' }}>品目小計（税抜）</label>
+                  <input
+                    type="number"
+                    className="form-control numeric"
+                    style={{
+                      fontSize: '16px',
+                      fontWeight: 500,
+                      color: 'var(--text-secondary)',
+                      background: 'var(--bg-glass)',
+                      cursor: 'not-allowed',
+                    }}
+                    value={(editData.items || []).reduce(
+                      (acc: number, item: ReceiptItem) => acc + (item.price || 0) * (item.qty || 1),
+                      0
+                    )}
+                    readOnly
+                    disabled
+                  />
+                </div>
+
+                <div className="form-group">
+                  <label>合計金額（税込）</label>
                   <input
                     type="number"
                     className="form-control numeric"
@@ -2387,12 +2730,37 @@ export default function App() {
                               : 'none',
                         }}
                       >
-                        <span style={{ fontWeight: 500 }}>{item.name || '未分類の商品'}</span>
+                        <span style={{ fontWeight: 500 }}>
+                          {item.name || '未分類の商品'}
+                          {item.tax_marker && (
+                            <span
+                              style={{
+                                color: '#a78bfa',
+                                fontSize: '11px',
+                                marginLeft: '6px',
+                                fontWeight: 600,
+                              }}
+                            >
+                              {item.tax_marker}
+                            </span>
+                          )}
+                        </span>
                         <span
                           className="numeric"
                           style={{ color: 'var(--text-secondary)', fontSize: '12px' }}
                         >
                           ¥{item.price.toLocaleString()} × {item.qty}
+                          {item.tax_rate !== undefined && item.tax_rate !== null && (
+                            <span
+                              style={{
+                                fontSize: '10px',
+                                color: 'var(--text-muted)',
+                                marginLeft: '4px',
+                              }}
+                            >
+                              ({item.tax_rate}%)
+                            </span>
+                          )}
                         </span>
                       </div>
                     ))}
@@ -2411,6 +2779,50 @@ export default function App() {
                 )}
               </div>
             </div>
+
+            {/* 消費税率別内訳 */}
+            {selectedTransaction.tax_summary && selectedTransaction.tax_summary.length > 0 && (
+              <div
+                style={{
+                  background: 'rgba(255, 255, 255, 0.015)',
+                  borderRadius: '16px',
+                  border: '1px solid rgba(255, 255, 255, 0.04)',
+                  padding: '12px 16px',
+                  marginBottom: '20px',
+                  fontSize: '12px',
+                }}
+              >
+                <div style={{ color: 'var(--text-muted)', marginBottom: '8px', fontWeight: 600 }}>
+                  消費税率別内訳
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  {selectedTransaction.tax_summary.map((tax, idx) => (
+                    <div
+                      key={idx}
+                      style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                      }}
+                    >
+                      <span style={{ color: 'var(--text-secondary)' }}>
+                        {tax.tax_rate !== null ? `${tax.tax_rate}%対象` : '非課税対象'}
+                        {tax.tax_rate !== null &&
+                          ` (${tax.tax_included ? '内税' : '外税'}${tax.tax_rate === 8 ? '・軽' : ''})`}
+                      </span>
+                      <span style={{ color: '#fff', fontWeight: 500 }} className="numeric">
+                        対象額 ¥{tax.taxable_amount?.toLocaleString() || 0}
+                        {tax.tax_rate !== null && (
+                          <span style={{ color: '#a78bfa', fontSize: '11px', marginLeft: '6px' }}>
+                            (税 ¥{tax.tax_amount?.toLocaleString() || 0})
+                          </span>
+                        )}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* 合計金額表示 */}
             <div

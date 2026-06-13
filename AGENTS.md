@@ -9,7 +9,7 @@
 
 ### 🚀 コアバリュー
 1. **極限の低コスト**: AWSサーバーレス（S3 + CloudFront + Lambda + DynamoDB）をフル活用します。
-2. **OCRレス画像解析**: GeminiなどのマルチモーダルAI (Amazon Bedrock / Nova Lite) に直接画像を投げることで、高額なOCRサービスの利用を廃止。
+2. **OCRレス画像解析**: マルチモーダルAI (Amazon Bedrock) に直接画像を投げることで、高額なOCRサービスの利用を廃止。
 3. **ローカルクリーン開発**: Docker Compose 環境による完全コンテナ開発を提供し、開発者のローカル環境を汚しません。
 
 ---
@@ -25,7 +25,7 @@
 ### バックエンド (backend/)
 - **Python 3.12 + FastAPI + Mangum**
 - AWS SDK: **Boto3** (DynamoDBへの保存、S3署名付きURL発行、Bedrock APIのConverse呼び出し)
-- 解析AI: **Amazon Bedrock (Amazon Nova Lite)** (`amazon.nova-lite-v1:0`)
+- 解析AI: **Amazon Bedrock** (Converseマルチモーダル呼び出し)
 
 ### インフラ・デプロイ
 - **Serverless Framework 3** (`serverless.yml` によるAWSリソースの自動プロビジョニング)

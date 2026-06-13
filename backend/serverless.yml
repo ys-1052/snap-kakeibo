@@ -37,18 +37,19 @@ provider:
           Resource:
             - arn:aws:dynamodb:${self:provider.region}:*:table/${self:provider.environment.DYNAMODB_TABLE}
             - arn:aws:dynamodb:${self:provider.region}:*:table/${self:provider.environment.DYNAMODB_TABLE}/index/*
-        # Amazon Bedrock (Nova Lite) の呼び出し権限
+        # Amazon Bedrock (NVIDIA Nemotron Nano 12B) の呼び出し権限
         - Effect: Allow
           Action:
             - bedrock:InvokeModel
             - bedrock:Converse
           Resource:
-            - arn:aws:bedrock:${self:provider.region}::foundation-model/amazon.nova-lite-v1:0
+            - arn:aws:bedrock:${self:provider.region}::foundation-model/nvidia.nemotron-nano-12b-v2
 
 functions:
   api:
     handler: main.handler
-    url: true # Lambda Function URLs を有効化 (API Gateway代わりの直通HTTPSエンドポイント)
+    url:
+      cors: true # Lambda Function URLs レベルでCORSを有効化し、ブラウザからのプリフライト(OPTIONS)リクエストを通過させます
     timeout: 30 # Bedrock解析の待機を考慮して30秒に設定
     memorySize: 512
 
@@ -228,3 +229,6 @@ resources:
     FrontendUrl:
       Value: !Sub "https://${FrontendCDN.DomainName}"
       Description: "Application Frontend URL"
+    FrontendCDNId:
+      Value: !Ref FrontendCDN
+      Description: "CloudFront Distribution ID"

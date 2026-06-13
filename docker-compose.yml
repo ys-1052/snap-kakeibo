@@ -33,8 +33,6 @@ services:
       - ./frontend:/app
       # node_modules をホスト側と同期させず、コンテナ側でクローズドに保持するためのボリューム設定
       - /app/node_modules
-    environment:
-      - VITE_API_URL=http://localhost:8000
     depends_on:
       - backend
     restart: always

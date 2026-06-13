@@ -15,14 +15,15 @@ from pydantic import BaseModel, Field
 
 app = FastAPI(title="SnapKakeibo API", version="1.0.0")
 
-# CORS設定 (フロントエンドからのアクセスを許可)
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],  # 開発用にすべて許可。本番時はCloudFrontドメインに制限
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# CORS設定 (ローカル開発環境のみFastAPI側で適用。本番環境はLambda Function URLのCORS設定が処理し、二重出力エラーを防ぎます)
+if not os.environ.get("COGNITO_USER_POOL_ID"):
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
 
 # AWSクライアントの初期化
 s3_client = boto3.client("s3")
@@ -41,7 +42,7 @@ bedrock_client = boto3.client(
 # 環境変数から設定を取得
 TABLE_NAME = os.environ.get("DYNAMODB_TABLE", "snap_kakeibo_transactions")
 BUCKET_NAME = os.environ.get("S3_BUCKET", "snap-kakeibo-receipts")
-MODEL_ID = "amazon.nova-lite-v1:0"  # Bedrock の超低コストマルチモーダルモデル
+MODEL_ID = "nvidia.nemotron-nano-12b-v2"  # NVIDIA Nemotron Nano 12B
 
 # Cognito認証設定
 COGNITO_USER_POOL_ID = os.environ.get("COGNITO_USER_POOL_ID")
@@ -82,6 +83,7 @@ def decode_cognito_token(token: str, key_data: dict) -> dict:
         algorithms=["RS256"],
         audience=COGNITO_CLIENT_ID,
         issuer=issuer,
+        leeway=120,  # サーバー間のわずかな時刻ズレ(Clock Skew)によるエラーを防ぐため、2分間の猶予を許可します
     )
 
 
@@ -145,10 +147,31 @@ def get_current_user(
 
         return {"sub": user_id, "email": email, "groups": groups}
     except jwt.ExpiredSignatureError as e:
+        import time
+
+        try:
+            unverified_payload = jwt.decode(token, options={"verify_signature": False})
+            exp = unverified_payload.get("exp")
+            iat = unverified_payload.get("iat")
+            now = int(time.time())
+            print(
+                f"JWT ExpiredSignatureError details: exp={exp}, iat={iat}, current_time={now}, diff={now - exp} seconds"
+            )
+        except Exception as pe:
+            print(f"Failed to parse unverified payload: {pe}")
+        print(f"JWT ExpiredSignatureError: {e}")
         raise HTTPException(status_code=401, detail="Token has expired") from e
     except jwt.InvalidTokenError as e:
+        print(f"JWT InvalidTokenError: {e}")
+        import traceback
+
+        traceback.print_exc()
         raise HTTPException(status_code=401, detail=f"Invalid token: {str(e)}") from e
     except Exception as e:
+        print(f"JWT Generic Auth Error: {e}")
+        import traceback
+
+        traceback.print_exc()
         raise HTTPException(
             status_code=401, detail=f"Authentication failed: {str(e)}"
         ) from e
@@ -189,23 +212,50 @@ class PresignedUrlResponse(BaseModel):
 
 
 class ReceiptItem(BaseModel):
-    name: str = Field(description="品目名（例：牛乳）")
-    price: int = Field(description="単価")
-    qty: int = Field(description="数量")
+    name: Optional[str] = Field("不明な品目", description="品目名（例：牛乳）")
+    price: Optional[int] = Field(0, description="単価または明細行金額（数量反映後）")
+    qty: Optional[int] = Field(1, description="数量")
+    tax_rate: Optional[int] = Field(
+        None, description="消費税率（8または10。非課税または不明な場合はnull）"
+    )
+    tax_included: Optional[bool] = Field(
+        None, description="税込か否か（税込の場合はtrue、税抜の場合はfalse）"
+    )
+    tax_marker: Optional[str] = Field(
+        None, description="レシート上の税印マーク（例：※, 軽, 非 など）"
+    )
+
+
+class TaxSummaryItem(BaseModel):
+    tax_rate: Optional[int] = Field(None, description="消費税率（8または10）")
+    taxable_amount: Optional[int] = Field(None, description="課税対象額（小計ベース）")
+    tax_amount: Optional[int] = Field(None, description="消費税額")
+    tax_included: Optional[bool] = Field(
+        None,
+        description="対象額が税込ベースか否か（内税の場合はtrue、外税の場合はfalse）",
+    )
 
 
 class ReceiptAnalysisResult(BaseModel):
-    transaction_date: str = Field(description="購入日 (YYYY-MM-DD形式)")
-    shop_name: str = Field(description="店舗名。不明な場合は '不明な店舗'")
-    total_amount: int = Field(description="合計金額")
-    category_name: str = Field(
+    transaction_date: Optional[str] = Field(
+        "2026-05-23", description="購入日 (YYYY-MM-DD形式)"
+    )
+    shop_name: Optional[str] = Field(
+        "不明な店舗", description="店舗名。不明な場合は '不明な店舗'"
+    )
+    total_amount: Optional[int] = Field(0, description="合計金額")
+    category_name: Optional[str] = Field(
+        "その他",
         description=(
             "カテゴリ名。"
             "'食費', '日用品', '交際費', '交通費', 'エンタメ', 'その他' のいずれか"
-        )
+        ),
     )
     items: List[ReceiptItem] = Field(
         default_factory=list, description="購入品目のリスト"
+    )
+    tax_summary: Optional[List[TaxSummaryItem]] = Field(
+        default_factory=list, description="税率別の集計リスト"
     )
 
 
@@ -214,11 +264,12 @@ class AnalyzeRequest(BaseModel):
 
 
 class TransactionSaveRequest(BaseModel):
-    transaction_date: str
-    shop_name: str
-    total_amount: int
-    category_name: str
-    items: List[ReceiptItem]
+    transaction_date: Optional[str] = Field("2026-05-23")
+    shop_name: Optional[str] = Field("不明な店舗")
+    total_amount: Optional[int] = Field(0)
+    category_name: Optional[str] = Field("その他")
+    items: List[ReceiptItem] = Field(default_factory=list)
+    tax_summary: Optional[List[TaxSummaryItem]] = Field(default_factory=list)
     receipt_s3_key: Optional[str] = None
     memo: Optional[str] = ""
 
@@ -302,24 +353,137 @@ def analyze_receipt(
         image_format = "jpeg" if file_extension in [".jpg", ".jpeg"] else "png"
 
         prompt = """
-        提供された日本語のレシート画像から、購入日(transaction_date)、店舗名(shop_name)、合計金額(total_amount)、品目リスト(items)、および最適なカテゴリ(category_name)を正確に抽出し、指定のJSONスキーマに沿ったJSONのみを出力してください。余計な説明文やMarkdownマークアップは一切含めないでください。
+            あなたは日本語レシート画像を解析し、支出管理アプリ用のJSONを生成する専門アシスタントです。
 
-        【抽出ルール】
-        1. 日本語を正確に処理してください。
-        2. 各品目の単価と数量を抽出してください。
-        3. カテゴリ名は以下のいずれかから最も適したものを選択してください。
-           選択肢: ["食費", "日用品", "交際費", "交通費", "エンタメ", "その他"]
+            提供されたレシート画像から、以下の情報を抽出してください。
 
-        【出力JSONフォーマット】
-        {
-          "transaction_date": "YYYY-MM-DD",
-          "shop_name": "店舗名",
-          "total_amount": 1000,
-          "category_name": "食費",
-          "items": [
-            { "name": "牛乳", "price": 200, "qty": 1 }
-          ]
-        }
+            - transaction_date: 購入日
+            - shop_name: 店舗名
+            - total_amount: 支払合計金額
+            - category_name: 支出カテゴリ
+            - items: 購入品目リスト（消費税情報を含む）
+            - tax_summary: 消費税区分別の集計リスト
+
+            必ず指定されたJSONスキーマに完全準拠したJSONのみを出力してください。
+            説明文、Markdown、コードブロック、コメントは一切出力しないでください。
+
+            【重要ルール】
+            1. レシートに記載されている情報のみを使用してください。
+            2. 読み取れない値や存在しない値は null にしてください。
+            3. 金額はすべて支払金額ベースで、数値のみを出力してください。円記号、カンマ、単位は含めないでください。
+            4. 日付は YYYY-MM-DD 形式に正規化してください。
+            5. 年が記載されていない場合は、画像または文脈から確実に判断できる場合のみ補完してください。判断できない場合は null にしてください。
+            6. 店舗名はレシート上部の正式な店舗名を優先してください。
+            7. 合計金額は「合計」「総合計」「お買上計」「お支払い金額」「領収金額」など、実際に支払った金額を優先してください。
+            8. 小計、税額、預り金、お釣り、ポイント利用額は total_amount として扱わないでください。
+            9. 品目リストには、購入商品・サービスのみを含めてください。小計、税、合計、値引き合計、預り金、お釣りは items に含めないでください。
+            10. 値引き商品がある場合は、可能なら値引き後の実支払価格を price にしてください。判断できない場合はレシート上の商品行の金額を使用してください。
+            11. qty は数量です。数量が明記されていない場合は 1 にしてください。
+            12. price はその品目行の金額を入れてください。単価ではなく、数量反映後の金額です。
+            13. 同じ商品が複数行に分かれている場合は、無理に統合せず、レシートの明細行に従って出力してください。
+            14. OCR誤認識が疑われる場合でも、確実に読める範囲で抽出し、不確かな値は null にしてください。
+            15. JSONとして不正な trailing comma は絶対に付けないでください。
+            16. 出力するすべての文字列フィールドに含まれるスペースは必ず全角スペース（　）を使用してください。半角スペースは使わないでください。
+            17. shop_name の〇〇店・〇〇館・〇〇号店などの店舗種別を示す語句の直前には必ず全角スペース（　）を挿入してください。（例: 「スーパーサンプル　渋谷店」）
+
+            【税情報の抽出ルール】
+            1. 品目ごとの税率抽出 (tax_rate):
+               - 各品目の消費税率が読み取れる場合は、数値の 8 または 10 を入力してください。
+               - レシートに「※」「軽」「軽%」「減」などの軽減税率印がある場合は 8 を、何も印がないか標準税率印がある場合は 10 または適切な税率を入力してください。非課税品目（切手、商品券、Suicaチャージ、一部手数料など）や判断できない場合は null（または非課税と確実な場合は 0）にしてください。
+            2. 品目ごとの税込・税抜の判断 (tax_included):
+               - その品目の price（金額）が税込金額である場合は true、税抜金額である場合は false を指定してください。
+               - 日本の多くのスーパーやドラッグストアでは品目単体の金額は税抜（false）で印字され、レシート下部でまとめて消費税が計算されます。一方、コンビニや飲食店などでは品目単体の金額が税込（true）で印字される傾向があります。レシート全体の構成（「税抜計」「内税」などの表記）から慎重に判断してください。
+            3. 税印マークの抽出 (tax_marker):
+               - レシート上でその品目の金額の横に印字されている税区分マーク（例: 「※」, 「軽」, 「非」, 「減」, 「テ」 など）があれば、その文字列をそのまま入力してください。印がない場合は null にしてください。
+            4. 税率別集計 (tax_summary):
+               - レシート下部に「8%対象」「10%対象」「軽税対象」「消費税」「内税」などの税率別の集計欄がある場合、その情報を正確に抽出してリストとして出力してください。
+               - tax_rate: 税率 (8 または 10)
+               - taxable_amount: その税率の課税対象額（「8%対象額」「税抜額」など、内税の場合は内税対象額。数値のみ）
+               - tax_amount: その税率の消費税額（「消費税」「内税」など。数値のみ）
+               - tax_included: 対象額が税込ベース（内税）である場合は true、税抜ベース（外税）である場合は false
+
+            【カテゴリ分類ルール】
+            category_name は以下のいずれか1つを必ず選択してください。
+
+            選択肢:
+            ["食費", "日用品", "交際費", "交通費", "エンタメ", "その他"]
+
+            分類基準:
+            - 食費: スーパー、コンビニ、飲食店、カフェ、食品、飲料など
+            - 日用品: ドラッグストア、生活用品、消耗品、洗剤、文具、衣類、雑貨など
+            - 交際費: 贈答品、会食、飲み会、手土産など
+            - 交通費: 電車、バス、タクシー、駐車場、ガソリン、高速料金など
+            - エンタメ: 映画、書籍、ゲーム、イベント、レジャー、サブスクなど
+            - その他: 上記に明確に分類できないもの
+
+            複数カテゴリにまたがる場合は、合計金額が最も大きい品目群に基づいて1つだけ選択してください。
+            判断できない場合は "その他" を選択してください。
+
+            【出力JSONスキーマ】
+            {
+              "transaction_date": "YYYY-MM-DD または null",
+              "shop_name": "店舗名 または null",
+              "total_amount": 数値 または null,
+              "category_name": "食費 | 日用品 | 交際費 | 交通費 | エンタメ | その他",
+              "items": [
+                {
+                  "name": "品目名",
+                  "price": 数値 または null,
+                  "qty": 数値,
+                  "tax_rate": 8 | 10 | 0 | null,
+                  "tax_included": true | false | null,
+                  "tax_marker": "※" 等のマーク または null
+                }
+              ],
+              "tax_summary": [
+                {
+                  "tax_rate": 8 | 10,
+                  "taxable_amount": 数値 または null,
+                  "tax_amount": 数値 または null,
+                  "tax_included": true | false
+                }
+              ]
+            }
+
+            【出力例】
+            {
+              "transaction_date": "2026-05-30",
+              "shop_name": "スーパーサンプル　渋谷店",
+              "total_amount": 1280,
+              "category_name": "食費",
+              "items": [
+                {
+                  "name": "牛乳",
+                  "price": 220,
+                  "qty": 1,
+                  "tax_rate": 8,
+                  "tax_included": false,
+                  "tax_marker": "※"
+                },
+                {
+                  "name": "ハミガキコ",
+                  "price": 330,
+                  "qty": 1,
+                  "tax_rate": 10,
+                  "tax_included": false,
+                  "tax_marker": null
+                }
+              ],
+              "tax_summary": [
+                {
+                  "tax_rate": 8,
+                  "taxable_amount": 220,
+                  "tax_amount": 17,
+                  "tax_included": false
+                },
+                {
+                  "tax_rate": 10,
+                  "taxable_amount": 330,
+                  "tax_amount": 33,
+                  "tax_included": false
+                }
+              ]
+            }
         """
 
         # Bedrock Converse API を使用してマルチモーダルリクエストを送信
@@ -354,8 +518,69 @@ def analyze_receipt(
             text_output = text_output.split("```")[1].split("```")[0].strip()
 
         # JSONをパースし、Pydanticモデルでバリデーション
-        analysis_result = ReceiptAnalysisResult.model_validate_json(text_output)
-        return analysis_result
+        try:
+            analysis_result = ReceiptAnalysisResult.model_validate_json(text_output)
+            return analysis_result
+        except Exception as ve:
+            print(f"[ERROR] Pydantic Validation Failed: {ve}")
+            print(f"[ERROR] Raw AI response was: {text_output}")
+            import json
+
+            try:
+                raw_dict = json.loads(text_output)
+                # Pydanticスキーマエラーを回避するため、安全な値に補完した辞書を返します
+                safe_result = {
+                    "transaction_date": raw_dict.get("transaction_date")
+                    or "2026-05-23",
+                    "shop_name": raw_dict.get("shop_name") or "不明な店舗",
+                    "total_amount": raw_dict.get("total_amount") or 0,
+                    "category_name": raw_dict.get("category_name") or "その他",
+                    "items": raw_dict.get("items") or [],
+                    "tax_summary": raw_dict.get("tax_summary") or [],
+                }
+                # itemsの中身も安全に検証
+                cleaned_items = []
+                for item in safe_result["items"]:
+                    if isinstance(item, dict):
+                        cleaned_items.append(
+                            {
+                                "name": item.get("name") or "不明な品目",
+                                "price": item.get("price")
+                                if item.get("price") is not None
+                                else 0,
+                                "qty": item.get("qty")
+                                if item.get("qty") is not None
+                                else 1,
+                                "tax_rate": item.get("tax_rate"),
+                                "tax_included": item.get("tax_included"),
+                                "tax_marker": item.get("tax_marker"),
+                            }
+                        )
+                safe_result["items"] = cleaned_items
+
+                # tax_summaryの中身も安全に検証
+                cleaned_summary = []
+                for t in safe_result["tax_summary"]:
+                    if isinstance(t, dict):
+                        cleaned_summary.append(
+                            {
+                                "tax_rate": t.get("tax_rate"),
+                                "taxable_amount": t.get("taxable_amount"),
+                                "tax_amount": t.get("tax_amount"),
+                                "tax_included": t.get("tax_included"),
+                            }
+                        )
+                safe_result["tax_summary"] = cleaned_summary
+
+                print(
+                    f"[DEBUG] Safely recovered from validation failure and returning: {safe_result}"
+                )
+                return safe_result
+            except Exception as je:
+                print(f"[ERROR] JSON parsing also failed: {je}")
+                raise HTTPException(
+                    status_code=500, detail=f"AI output validation failed: {str(ve)}"
+                ) from je
 
     except Exception as e:
         raise HTTPException(
@@ -384,6 +609,9 @@ def save_transaction(
             "total_amount": payload.total_amount,
             "category_name": payload.category_name,
             "items": [item.model_dump() for item in payload.items],
+            "tax_summary": [t.model_dump() for t in payload.tax_summary]
+            if payload.tax_summary
+            else [],
             "receipt_s3_key": payload.receipt_s3_key,
             "memo": payload.memo,
             "created_at": datetime.utcnow().isoformat(),

@@ -63,5 +63,8 @@ deploy:
 	@echo "ビルドされた静的ファイルを本番S3バケットにアップロード中..."
 	@FRONTEND_BUCKET=$$(aws cloudformation describe-stacks --stack-name snap-kakeibo-backend-prod --query "Stacks[0].Outputs[?OutputKey=='FrontendBucketName'].OutputValue" --output text --profile $(AWS_PROFILE) --region ap-northeast-1) && \
 	aws s3 sync frontend/dist s3://$$FRONTEND_BUCKET --delete --profile $(AWS_PROFILE) --region ap-northeast-1
-	@echo "\n🎉 【完全IaC】デプロイ完了！アプリケーションURL:"
+	@echo "CloudFrontのCDNキャッシュをクリア中..."
+	@CDN_ID=$$(aws cloudformation describe-stacks --stack-name snap-kakeibo-backend-prod --query "Stacks[0].Outputs[?OutputKey=='FrontendCDNId'].OutputValue" --output text --profile $(AWS_PROFILE) --region ap-northeast-1) && \
+	aws cloudfront create-invalidation --distribution-id $$CDN_ID --paths "/*" --profile $(AWS_PROFILE) --region ap-northeast-1 > /dev/null
+	@echo "\n🎉 デプロイ完了！アプリケーションURL:"
 	@aws cloudformation describe-stacks --stack-name snap-kakeibo-backend-prod --query "Stacks[0].Outputs[?OutputKey=='FrontendUrl'].OutputValue" --output text --profile $(AWS_PROFILE) --region ap-northeast-1
