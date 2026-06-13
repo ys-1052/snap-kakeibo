@@ -810,7 +810,7 @@ export default function App() {
       items: editData.items || [],
       tax_summary: editData.tax_summary || null,
       receipt_s3_key: editData.receipt_s3_key,
-      memo: editData.memo || 'AIスキャンによる登録',
+      memo: editData.memo || '',
       created_at: new Date().toISOString(),
     };
 
@@ -2658,12 +2658,53 @@ export default function App() {
               }}
             >
               <h3 style={{ fontSize: '17px', fontWeight: 700 }}>家計簿履歴一覧</h3>
-              <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
-                全 {transactions.length} 件
-              </span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                {/* 月選択ドロップダウン */}
+                <select
+                  value={selectedMonth}
+                  onChange={e => setSelectedMonth(e.target.value)}
+                  style={{
+                    background: 'rgba(255,255,255,0.08)',
+                    border: '1px solid rgba(255,255,255,0.15)',
+                    borderRadius: '10px',
+                    color: '#fff',
+                    fontSize: '13px',
+                    fontWeight: 600,
+                    padding: '6px 10px',
+                    cursor: 'pointer',
+                    outline: 'none',
+                  }}
+                >
+                  {getSelectableMonths().map(m => {
+                    const [y, mo] = m.split('-');
+                    return (
+                      <option key={m} value={m} style={{ background: '#1a1a2e', color: '#fff' }}>
+                        {y}年{parseInt(mo)}月
+                      </option>
+                    );
+                  })}
+                </select>
+                <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
+                  {filteredTransactions.length} 件
+                </span>
+              </div>
             </div>
 
-            {transactions.map(t => (
+            {filteredTransactions.length === 0 ? (
+              <p
+                style={{
+                  textAlign: 'center',
+                  color: 'var(--text-muted)',
+                  padding: '40px 0',
+                  fontSize: '14px',
+                }}
+              >
+                この月の取引はありません
+              </p>
+            ) : (
+              [...filteredTransactions]
+                .sort((a, b) => b.transaction_date.localeCompare(a.transaction_date))
+                .map(t => (
               <div
                 className="glass-card"
                 key={t.id}
@@ -2820,9 +2861,12 @@ export default function App() {
                   </div>
                 )}
               </div>
-            ))}
+                ))
+            )}
           </div>
         )}
+
+
 
         {/* ==================== 4. SETTINGS TAB ==================== */}
         {activeTab === 'settings' && (
@@ -3021,7 +3065,7 @@ export default function App() {
                 </div>
 
                 {/* 日付とカテゴリ */}
-                <div style={{ display: 'flex', gap: '12px' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                   <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '6px' }}>
                     <label
                       style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 600 }}
