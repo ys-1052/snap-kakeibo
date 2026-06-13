@@ -2048,6 +2048,43 @@ export default function App() {
                     対応形式: JPG, JPEG, PNG
                   </span>
                 </label>
+
+                <div
+                  style={{
+                    marginTop: '24px',
+                    paddingTop: '24px',
+                    borderTop: '1px solid rgba(255,255,255,0.1)',
+                  }}
+                >
+                  <button
+                    onClick={() => {
+                      const today = new Date().toISOString().split('T')[0];
+                      setEditData({
+                        transaction_date: today,
+                        shop_name: '',
+                        total_amount: 0,
+                        category_name: 'その他',
+                        items: [],
+                        tax_summary: [],
+                        memo: '',
+                      });
+                    }}
+                    className="btn-secondary"
+                    style={{
+                      width: '100%',
+                      padding: '12px',
+                      borderRadius: '16px',
+                      fontSize: '14px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '8px',
+                    }}
+                  >
+                    <Plus size={18} />
+                    手動で入力する
+                  </button>
+                </div>
               </div>
             )}
 
@@ -2121,7 +2158,9 @@ export default function App() {
                 >
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                     <Sparkles size={20} color="#8b5cf6" />
-                    <h3 style={{ fontSize: '17px', fontWeight: 700 }}>AI解析結果</h3>
+                    <h3 style={{ fontSize: '17px', fontWeight: 700 }}>
+                      {previewUrl ? 'AI解析結果' : '手動入力'}
+                    </h3>
                   </div>
                   <button
                     onClick={() => {
@@ -2254,7 +2293,7 @@ export default function App() {
                                     flex: '0 1 auto',
                                   }}
                                 >
-                                  {item.name || '(未入力品目)'}
+                                  {item.name || '品目未入力'}
                                 </span>
                                 <span className="tax-badge">
                                   {item.tax_rate ? `${item.tax_rate}%` : '免税'}
@@ -2420,7 +2459,7 @@ export default function App() {
                                     inputMode="numeric"
                                     className="premium-input numeric"
                                     placeholder="単価"
-                                    value={item.price || ''}
+                                    value={item.price === 0 ? '' : item.price}
                                     onChange={e => handleItemChange(idx, 'price', e.target.value)}
                                     style={{
                                       width: '100%',
@@ -3238,7 +3277,7 @@ export default function App() {
                               </span>
                               <input
                                 type="number"
-                                value={item.price || 0}
+                                value={item.price === 0 ? '' : item.price}
                                 onChange={e => handleItemChange(index, 'price', e.target.value)}
                                 style={{
                                   width: '60px',
