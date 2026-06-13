@@ -1985,7 +1985,15 @@ export default function App() {
                           e.currentTarget.style.transform = 'translateX(0)';
                         }}
                       >
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flex: 1, minWidth: 0 }}>
+                        <div
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '10px',
+                            flex: 1,
+                            minWidth: 0,
+                          }}
+                        >
                           <div
                             style={{
                               width: '8px',
@@ -2899,7 +2907,14 @@ export default function App() {
                           </span>
                         </div>
                       </div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexShrink: 0 }}>
+                      <div
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '12px',
+                          flexShrink: 0,
+                        }}
+                      >
                         <span
                           className="numeric"
                           style={{
