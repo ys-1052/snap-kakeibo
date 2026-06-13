@@ -181,9 +181,7 @@ def get_current_user(
         import traceback
 
         traceback.print_exc()
-        raise HTTPException(
-            status_code=401, detail="Authentication failed"
-        ) from e
+        raise HTTPException(status_code=401, detail="Authentication failed") from e
 
 
 # ローカル環境起動時にテーブルがなければ自動作成する
@@ -652,9 +650,7 @@ def list_transactions(current_user: dict = Depends(get_current_user)):  # noqa: 
         )
         return response.get("Items", [])
     except ClientError as e:
-        raise HTTPException(
-            status_code=500, detail="Failed to query DynamoDB"
-        ) from e
+        raise HTTPException(status_code=500, detail="Failed to query DynamoDB") from e
 
 
 @app.put("/api/transactions/{transaction_id}")
