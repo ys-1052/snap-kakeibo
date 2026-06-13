@@ -2705,168 +2705,176 @@ export default function App() {
               [...filteredTransactions]
                 .sort((a, b) => b.transaction_date.localeCompare(a.transaction_date))
                 .map(t => (
-              <div
-                className="glass-card"
-                key={t.id}
-                onClick={() => {
-                  setSelectedTransaction(t);
-                  setEditData({ ...t });
-                }}
-                style={{
-                  padding: '16px 20px',
-                  marginBottom: '12px',
-                  cursor: 'pointer',
-                  transition: 'all 0.2s ease',
-                  position: 'relative',
-                }}
-                onMouseEnter={e => {
-                  e.currentTarget.style.transform = 'translateY(-2px)';
-                  e.currentTarget.style.background = 'rgba(255, 255, 255, 0.05)';
-                  e.currentTarget.style.borderColor = 'rgba(139, 92, 246, 0.3)';
-                }}
-                onMouseLeave={e => {
-                  e.currentTarget.style.transform = 'translateY(0)';
-                  e.currentTarget.style.background = 'var(--glass-bg)';
-                  e.currentTarget.style.borderColor = 'var(--glass-border)';
-                }}
-              >
-                <div
-                  style={{
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'flex-start',
-                    marginBottom: '8px',
-                  }}
-                >
-                  <div>
-                    <h4 style={{ fontSize: '15px', fontWeight: 600, color: 'var(--text-primary)' }}>
-                      {t.shop_name}
-                    </h4>
+                  <div
+                    className="glass-card"
+                    key={t.id}
+                    onClick={() => {
+                      setSelectedTransaction(t);
+                      setEditData({ ...t });
+                    }}
+                    style={{
+                      padding: '16px 20px',
+                      marginBottom: '12px',
+                      cursor: 'pointer',
+                      transition: 'all 0.2s ease',
+                      position: 'relative',
+                    }}
+                    onMouseEnter={e => {
+                      e.currentTarget.style.transform = 'translateY(-2px)';
+                      e.currentTarget.style.background = 'rgba(255, 255, 255, 0.05)';
+                      e.currentTarget.style.borderColor = 'rgba(139, 92, 246, 0.3)';
+                    }}
+                    onMouseLeave={e => {
+                      e.currentTarget.style.transform = 'translateY(0)';
+                      e.currentTarget.style.background = 'var(--glass-bg)';
+                      e.currentTarget.style.borderColor = 'var(--glass-border)';
+                    }}
+                  >
                     <div
                       style={{
                         display: 'flex',
-                        alignItems: 'center',
-                        gap: '8px',
-                        marginTop: '4px',
+                        justifyContent: 'space-between',
+                        alignItems: 'flex-start',
+                        marginBottom: '8px',
                       }}
                     >
-                      <span
+                      <div>
+                        <h4
+                          style={{
+                            fontSize: '15px',
+                            fontWeight: 600,
+                            color: 'var(--text-primary)',
+                          }}
+                        >
+                          {t.shop_name}
+                        </h4>
+                        <div
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '8px',
+                            marginTop: '4px',
+                          }}
+                        >
+                          <span
+                            style={{
+                              background: CATEGORY_COLORS[t.category_name] + '20',
+                              color: CATEGORY_COLORS[t.category_name] || '#868e96',
+                              fontSize: '11px',
+                              padding: '2px 8px',
+                              borderRadius: '10px',
+                              fontWeight: 600,
+                            }}
+                          >
+                            {t.category_name}
+                          </span>
+                          <span
+                            className="numeric"
+                            style={{
+                              fontSize: '12px',
+                              color: 'var(--text-muted)',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '4px',
+                            }}
+                          >
+                            <Calendar size={12} />
+                            {t.transaction_date}
+                          </span>
+                        </div>
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                        <span
+                          className="numeric"
+                          style={{
+                            fontSize: '18px',
+                            fontWeight: 700,
+                            color: 'var(--text-primary)',
+                          }}
+                        >
+                          ¥{t.total_amount.toLocaleString()}
+                        </span>
+                        <button
+                          onClick={e => {
+                            e.stopPropagation();
+                            handleDeleteTransaction(t.id);
+                          }}
+                          style={{
+                            background: 'rgba(239, 68, 68, 0.1)',
+                            border: '1px solid rgba(239, 68, 68, 0.2)',
+                            borderRadius: '8px',
+                            width: '32px',
+                            height: '32px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            color: '#f87171',
+                            cursor: 'pointer',
+                            transition: 'all 0.2s',
+                          }}
+                          onMouseEnter={e => {
+                            e.currentTarget.style.background = 'rgba(239, 68, 68, 0.25)';
+                            e.currentTarget.style.color = '#ef4444';
+                            e.currentTarget.style.borderColor = 'rgba(239, 68, 68, 0.4)';
+                          }}
+                          onMouseLeave={e => {
+                            e.currentTarget.style.background = 'rgba(239, 68, 68, 0.1)';
+                            e.currentTarget.style.color = '#f87171';
+                            e.currentTarget.style.borderColor = 'rgba(239, 68, 68, 0.2)';
+                          }}
+                          title="この履歴を削除"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+                    </div>
+
+                    {t.items && t.items.length > 0 && (
+                      <div
                         style={{
-                          background: CATEGORY_COLORS[t.category_name] + '20',
-                          color: CATEGORY_COLORS[t.category_name] || '#868e96',
-                          fontSize: '11px',
-                          padding: '2px 8px',
-                          borderRadius: '10px',
-                          fontWeight: 600,
-                        }}
-                      >
-                        {t.category_name}
-                      </span>
-                      <span
-                        className="numeric"
-                        style={{
-                          fontSize: '12px',
-                          color: 'var(--text-muted)',
+                          borderTop: '1px solid rgba(255,255,255,0.05)',
+                          paddingTop: '8px',
+                          marginTop: '8px',
                           display: 'flex',
-                          alignItems: 'center',
+                          flexDirection: 'column',
                           gap: '4px',
                         }}
                       >
-                        <Calendar size={12} />
-                        {t.transaction_date}
-                      </span>
-                    </div>
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                    <span
-                      className="numeric"
-                      style={{ fontSize: '18px', fontWeight: 700, color: 'var(--text-primary)' }}
-                    >
-                      ¥{t.total_amount.toLocaleString()}
-                    </span>
-                    <button
-                      onClick={e => {
-                        e.stopPropagation();
-                        handleDeleteTransaction(t.id);
-                      }}
-                      style={{
-                        background: 'rgba(239, 68, 68, 0.1)',
-                        border: '1px solid rgba(239, 68, 68, 0.2)',
-                        borderRadius: '8px',
-                        width: '32px',
-                        height: '32px',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        color: '#f87171',
-                        cursor: 'pointer',
-                        transition: 'all 0.2s',
-                      }}
-                      onMouseEnter={e => {
-                        e.currentTarget.style.background = 'rgba(239, 68, 68, 0.25)';
-                        e.currentTarget.style.color = '#ef4444';
-                        e.currentTarget.style.borderColor = 'rgba(239, 68, 68, 0.4)';
-                      }}
-                      onMouseLeave={e => {
-                        e.currentTarget.style.background = 'rgba(239, 68, 68, 0.1)';
-                        e.currentTarget.style.color = '#f87171';
-                        e.currentTarget.style.borderColor = 'rgba(239, 68, 68, 0.2)';
-                      }}
-                      title="この履歴を削除"
-                    >
-                      <Trash2 size={14} />
-                    </button>
-                  </div>
-                </div>
-
-                {t.items && t.items.length > 0 && (
-                  <div
-                    style={{
-                      borderTop: '1px solid rgba(255,255,255,0.05)',
-                      paddingTop: '8px',
-                      marginTop: '8px',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      gap: '4px',
-                    }}
-                  >
-                    {t.items.slice(0, 2).map((item, index) => (
-                      <div
-                        key={index}
-                        style={{
-                          display: 'flex',
-                          justifyContent: 'space-between',
-                          fontSize: '12px',
-                          color: 'var(--text-secondary)',
-                        }}
-                      >
-                        <span>• {item.name}</span>
-                        <span>
-                          ¥{item.price.toLocaleString()} x{item.qty}
-                        </span>
+                        {t.items.slice(0, 2).map((item, index) => (
+                          <div
+                            key={index}
+                            style={{
+                              display: 'flex',
+                              justifyContent: 'space-between',
+                              fontSize: '12px',
+                              color: 'var(--text-secondary)',
+                            }}
+                          >
+                            <span>• {item.name}</span>
+                            <span>
+                              ¥{item.price.toLocaleString()} x{item.qty}
+                            </span>
+                          </div>
+                        ))}
+                        {t.items.length > 2 && (
+                          <span
+                            style={{
+                              fontSize: '11px',
+                              color: 'var(--text-muted)',
+                              fontStyle: 'italic',
+                              marginTop: '2px',
+                            }}
+                          >
+                            他 {t.items.length - 2} 件の品目...
+                          </span>
+                        )}
                       </div>
-                    ))}
-                    {t.items.length > 2 && (
-                      <span
-                        style={{
-                          fontSize: '11px',
-                          color: 'var(--text-muted)',
-                          fontStyle: 'italic',
-                          marginTop: '2px',
-                        }}
-                      >
-                        他 {t.items.length - 2} 件の品目...
-                      </span>
                     )}
                   </div>
-                )}
-              </div>
                 ))
             )}
           </div>
         )}
-
-
 
         {/* ==================== 4. SETTINGS TAB ==================== */}
         {activeTab === 'settings' && (
