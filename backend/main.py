@@ -17,7 +17,7 @@ from pydantic import BaseModel, Field
 app = FastAPI(title="SnapKakeibo API", version="1.0.0")
 
 # CORS設定 (ローカル開発環境のみFastAPI側で適用。本番環境はLambda Function URLのCORS設定が処理し、二重出力エラーを防ぎます)
-if not os.environ.get("COGNITO_USER_POOL_ID"):
+if os.environ.get("MOCK_AUTH_ENABLED") == "true":
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["*"],
@@ -118,8 +118,8 @@ def handle_local_mock_auth(
 def get_current_user(
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(security_scheme),  # noqa: B008
 ) -> dict:
-    # Cognito未設定時はローカル擬似認証モードを適用（マルチユーザー再現可）
-    if not COGNITO_USER_POOL_ID:
+    # MOCK_AUTH_ENABLED=true の場合はローカル擬似認証モードを適用（マルチユーザー再現可）
+    if os.environ.get("MOCK_AUTH_ENABLED") == "true":
         return handle_local_mock_auth(credentials)
 
     if not credentials:
