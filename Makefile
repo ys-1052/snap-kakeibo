@@ -57,7 +57,11 @@ format-be:
 # インフラのデプロイ、フロントエンドのビルド、S3同期までを全自動で実行
 deploy:
 	cd infra && AWS_PROFILE=$(AWS_PROFILE) npx serverless deploy
-	python3 backend/update_env.py --stage prod --profile $(AWS_PROFILE)
+	@echo "# このファイルはデプロイ時に自動生成されました。手動で変更しないでください。" > frontend/.env.production
+	@echo "VITE_API_URL=$$(aws cloudformation describe-stacks --stack-name snap-kakeibo-backend-prod --query \"Stacks[0].Outputs[?OutputKey=='ApiUrl'].OutputValue\" --output text --profile $(AWS_PROFILE) --region ap-northeast-1)" >> frontend/.env.production
+	@echo "VITE_COGNITO_CLIENT_ID=$$(aws cloudformation describe-stacks --stack-name snap-kakeibo-backend-prod --query \"Stacks[0].Outputs[?OutputKey=='CognitoClientId'].OutputValue\" --output text --profile $(AWS_PROFILE) --region ap-northeast-1)" >> frontend/.env.production
+	@echo "VITE_COGNITO_REGION=ap-northeast-1" >> frontend/.env.production
+	@echo "✨ frontend/.env.production を自動生成しました！"
 	@echo "フロントエンドをDocker環境でビルド中..."
 	docker compose run --rm frontend npm run build
 	@echo "ビルドされた静的ファイルを本番S3バケットにアップロード中..."
