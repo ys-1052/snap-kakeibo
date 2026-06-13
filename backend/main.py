@@ -6,6 +6,7 @@ from typing import List, Optional
 import boto3
 import jwt
 import requests
+from botocore.config import Config
 from botocore.exceptions import ClientError
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -26,17 +27,27 @@ if not os.environ.get("COGNITO_USER_POOL_ID"):
     )
 
 # AWSクライアントの初期化
-s3_client = boto3.client("s3")
+region_name = os.environ.get("AWS_REGION", "ap-northeast-1")
+
+# AWSクライアントの初期化
+s3_client = boto3.client(
+    "s3",
+    region_name=region_name,
+    endpoint_url=f"https://s3.{region_name}.amazonaws.com",
+    config=Config(signature_version="s3v4"),
+)
 
 # ローカルDynamoDBまたはAWS DynamoDBへの接続切り替え
 DYNAMODB_ENDPOINT_URL = os.environ.get("DYNAMODB_ENDPOINT_URL")
 if DYNAMODB_ENDPOINT_URL:
-    dynamodb = boto3.resource("dynamodb", endpoint_url=DYNAMODB_ENDPOINT_URL)
+    dynamodb = boto3.resource(
+        "dynamodb", endpoint_url=DYNAMODB_ENDPOINT_URL, region_name=region_name
+    )
 else:
-    dynamodb = boto3.resource("dynamodb")
+    dynamodb = boto3.resource("dynamodb", region_name=region_name)
 # Bedrock Runtimeクライアントの初期化 (東京リージョン ap-northeast-1)
 bedrock_client = boto3.client(
-    "bedrock-runtime", region_name=os.environ.get("AWS_REGION", "ap-northeast-1")
+    "bedrock-runtime", region_name=region_name
 )
 
 # 環境変数から設定を取得

@@ -15,8 +15,8 @@ services:
     environment:
       - AWS_PROFILE=${AWS_PROFILE:-default}  # ホストPCのプロファイルを選択可能 (デフォルトは default)
       - AWS_REGION=ap-northeast-1            # 東京リージョン
-      - DYNAMODB_TABLE=snap-kakeibo-backend-transactions-dev
-      - S3_BUCKET=snap-kakeibo-backend-receipts-dev
+      - DYNAMODB_TABLE=snap-kakeibo-transactions-dev
+      - S3_BUCKET=snap-kakeibo-receipts-dev
       - DYNAMODB_ENDPOINT_URL=http://dynamodb-local:8000
     depends_on:
       - dynamodb-local

@@ -57,7 +57,7 @@ make up-build
 | **DynamoDB GUI Admin** | [http://localhost:8001](http://localhost:8001) | **dynamodb-admin**: DBの中身を目で確認・操作可能 |
 
 > [!NOTE]  
-> バックエンドの起動時イベント（FastAPIの `startup`）により、ローカルDynamoDB上にテーブル **`snap-kakeibo-backend-transactions-dev`** が**自動でプロビジョニング**されます。手動でのテーブル作成コマンドは一切不要です！
+> バックエンドの起動時イベント（FastAPIの `startup`）により、ローカルDynamoDB上にテーブル **`snap-kakeibo-transactions-dev`** が**自動でプロビジョニング**されます。手動でのテーブル作成コマンドは一切不要です！
 
 ### 3. ローカル検証時の便利コマンド
 ```bash

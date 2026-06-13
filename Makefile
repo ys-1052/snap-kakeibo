@@ -58,17 +58,17 @@ format-be:
 deploy:
 	cd infra && AWS_PROFILE=$(AWS_PROFILE) npx serverless deploy
 	@echo "# このファイルはデプロイ時に自動生成されました。手動で変更しないでください。" > frontend/.env.production
-	@echo "VITE_API_URL=$$(aws cloudformation describe-stacks --stack-name snap-kakeibo-backend-prod --query \"Stacks[0].Outputs[?OutputKey=='ApiUrl'].OutputValue\" --output text --profile $(AWS_PROFILE) --region ap-northeast-1)" >> frontend/.env.production
-	@echo "VITE_COGNITO_CLIENT_ID=$$(aws cloudformation describe-stacks --stack-name snap-kakeibo-backend-prod --query \"Stacks[0].Outputs[?OutputKey=='CognitoClientId'].OutputValue\" --output text --profile $(AWS_PROFILE) --region ap-northeast-1)" >> frontend/.env.production
-	@echo "VITE_COGNITO_REGION=ap-northeast-1" >> frontend/.env.production
+	@echo VITE_API_URL=$$(aws cloudformation describe-stacks --stack-name snap-kakeibo-prod --query "Stacks[0].Outputs[?OutputKey=='ApiUrl'].OutputValue" --output text --profile $(AWS_PROFILE) --region ap-northeast-1) >> frontend/.env.production
+	@echo VITE_COGNITO_CLIENT_ID=$$(aws cloudformation describe-stacks --stack-name snap-kakeibo-prod --query "Stacks[0].Outputs[?OutputKey=='CognitoClientId'].OutputValue" --output text --profile $(AWS_PROFILE) --region ap-northeast-1) >> frontend/.env.production
+	@echo VITE_COGNITO_REGION=ap-northeast-1 >> frontend/.env.production
 	@echo "✨ frontend/.env.production を自動生成しました！"
 	@echo "フロントエンドをDocker環境でビルド中..."
 	docker compose run --rm frontend npm run build
 	@echo "ビルドされた静的ファイルを本番S3バケットにアップロード中..."
-	@FRONTEND_BUCKET=$$(aws cloudformation describe-stacks --stack-name snap-kakeibo-backend-prod --query "Stacks[0].Outputs[?OutputKey=='FrontendBucketName'].OutputValue" --output text --profile $(AWS_PROFILE) --region ap-northeast-1) && \
+	@FRONTEND_BUCKET=$$(aws cloudformation describe-stacks --stack-name snap-kakeibo-prod --query "Stacks[0].Outputs[?OutputKey=='FrontendBucketName'].OutputValue" --output text --profile $(AWS_PROFILE) --region ap-northeast-1) && \
 	aws s3 sync frontend/dist s3://$$FRONTEND_BUCKET --delete --profile $(AWS_PROFILE) --region ap-northeast-1
 	@echo "CloudFrontのCDNキャッシュをクリア中..."
-	@CDN_ID=$$(aws cloudformation describe-stacks --stack-name snap-kakeibo-backend-prod --query "Stacks[0].Outputs[?OutputKey=='FrontendCDNId'].OutputValue" --output text --profile $(AWS_PROFILE) --region ap-northeast-1) && \
+	@CDN_ID=$$(aws cloudformation describe-stacks --stack-name snap-kakeibo-prod --query "Stacks[0].Outputs[?OutputKey=='FrontendCDNId'].OutputValue" --output text --profile $(AWS_PROFILE) --region ap-northeast-1) && \
 	aws cloudfront create-invalidation --distribution-id $$CDN_ID --paths "/*" --profile $(AWS_PROFILE) --region ap-northeast-1 > /dev/null
 	@echo "\n🎉 デプロイ完了！アプリケーションURL:"
-	@aws cloudformation describe-stacks --stack-name snap-kakeibo-backend-prod --query "Stacks[0].Outputs[?OutputKey=='FrontendUrl'].OutputValue" --output text --profile $(AWS_PROFILE) --region ap-northeast-1
+	@aws cloudformation describe-stacks --stack-name snap-kakeibo-prod --query "Stacks[0].Outputs[?OutputKey=='FrontendUrl'].OutputValue" --output text --profile $(AWS_PROFILE) --region ap-northeast-1
