@@ -17,7 +17,8 @@ import {
   Lock,
   Mail,
   User,
-  ShieldCheck,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react';
 import {
   AreaChart,
@@ -201,6 +202,7 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'scan' | 'history' | 'settings'>(
     'dashboard'
   );
+  const [expandedItemIdx, setExpandedItemIdx] = useState<number | null>(null);
   const [transactions, setTransactions] = useState<Transaction[]>(() => {
     const saved = localStorage.getItem('snap_kakeibo_transactions');
     if (saved) return JSON.parse(saved);
@@ -725,12 +727,24 @@ export default function App() {
       { name: '', price: 0, qty: 1, tax_rate: 8, tax_included: false, tax_marker: '※' },
     ];
     updateItemsAndTotal(updatedItems);
+    setExpandedItemIdx(updatedItems.length - 1);
   };
 
   // 品目の削除
   const handleRemoveItem = (index: number) => {
     if (!editData || !editData.items) return;
     const updatedItems = editData.items.filter((_, i) => i !== index);
+    updateItemsAndTotal(updatedItems);
+    setExpandedItemIdx(null);
+  };
+
+  // 品目の数量調整 (+1, -1)
+  const handleQtyAdjust = (index: number, delta: number) => {
+    if (!editData || !editData.items) return;
+    const updatedItems = [...editData.items];
+    const currentQty = updatedItems[index].qty || 1;
+    const newQty = Math.max(1, currentQty + delta);
+    updatedItems[index] = { ...updatedItems[index], qty: newQty };
     updateItemsAndTotal(updatedItems);
   };
 
@@ -1263,59 +1277,66 @@ export default function App() {
           display: 'flex',
           justifyContent: 'space-between',
           alignItems: 'center',
-          background: 'rgba(9, 10, 15, 0.4)',
-          backdropFilter: 'blur(10px)',
+          background: 'rgba(9, 10, 15, 0.6)',
+          backdropFilter: 'blur(20px)',
+          WebkitBackdropFilter: 'blur(20px)',
           position: 'sticky',
           top: 0,
           zIndex: 50,
-          borderBottom: '1px solid rgba(255, 255, 255, 0.03)',
+          borderBottom: '1px solid rgba(255, 255, 255, 0.06)',
         }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
           <div
             style={{
               background: 'var(--grad-primary)',
-              width: '36px',
-              height: '36px',
-              borderRadius: '10px',
+              width: '38px',
+              height: '38px',
+              borderRadius: '12px',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              boxShadow: 'var(--glow-purple)',
+              boxShadow: '0 0 15px rgba(139, 92, 246, 0.5)',
             }}
           >
             <Camera size={20} color="#fff" />
           </div>
           <div>
-            <h1 style={{ fontSize: '18px', fontWeight: 800, letterSpacing: '-0.5px' }}>
+            <h1
+              style={{
+                fontSize: '18px',
+                fontWeight: 800,
+                letterSpacing: '-0.5px',
+                lineHeight: 1.2,
+              }}
+            >
               Snap
-              <span
-                style={{
-                  background: 'var(--grad-accent)',
-                  WebkitBackgroundClip: 'text',
-                  WebkitTextFillColor: 'transparent',
-                }}
-              >
-                Kakeibo
-              </span>
+              <span className="gradient-text">Kakeibo</span>
             </h1>
-            <p style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>
-              AI Receipt Scan & Analytics
+            <p
+              style={{
+                fontSize: '9px',
+                color: 'var(--text-secondary)',
+                fontWeight: 500,
+                letterSpacing: '0.5px',
+              }}
+            >
+              RECEIPT SCAN & ANALYTICS
             </p>
           </div>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           {token && (
             <div
               style={{
                 display: 'flex',
                 alignItems: 'center',
-                gap: '8px',
+                gap: '6px',
                 background: 'rgba(255, 255, 255, 0.03)',
                 border: '1px solid rgba(255, 255, 255, 0.05)',
-                padding: '6px 12px',
-                borderRadius: '12px',
+                padding: '4px 10px',
+                borderRadius: '20px',
               }}
             >
               <div
@@ -1324,37 +1345,38 @@ export default function App() {
                   alignItems: 'center',
                   gap: '4px',
                   fontSize: '11px',
-                  color: 'var(--text-secondary)',
-                  borderRight: '1px solid rgba(255, 255, 255, 0.08)',
-                  paddingRight: '8px',
+                  color: 'var(--text-primary)',
+                  fontWeight: 500,
+                  maxWidth: '90px',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
                 }}
               >
-                <User size={12} color="var(--text-secondary)" />
-                <span
-                  style={{
-                    maxWidth: '120px',
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap',
-                  }}
-                >
-                  {userEmail}
-                </span>
+                <User size={10} color="var(--text-secondary)" />
+                <span>{userEmail.split('@')[0]}</span>
               </div>
+              <div
+                style={{
+                  width: '1px',
+                  height: '10px',
+                  background: 'rgba(255,255,255,0.1)',
+                }}
+              />
               <div
                 style={{
                   display: 'flex',
                   alignItems: 'center',
-                  gap: '4px',
-                  fontSize: '11px',
-                  color: userRole === '管理者' ? '#a78bfa' : 'var(--text-muted)',
+                  gap: '2px',
+                  fontSize: '9px',
+                  color: userRole === '管理者' ? '#a78bfa' : 'var(--text-secondary)',
+                  background:
+                    userRole === '管理者' ? 'rgba(167, 139, 250, 0.1)' : 'rgba(255,255,255,0.05)',
+                  padding: '2px 6px',
+                  borderRadius: '10px',
                   fontWeight: 600,
                 }}
               >
-                <ShieldCheck
-                  size={12}
-                  color={userRole === '管理者' ? '#a78bfa' : 'var(--text-muted)'}
-                />
                 <span>{userRole}</span>
               </div>
             </div>
@@ -1364,20 +1386,28 @@ export default function App() {
             <button
               onClick={handleLogout}
               style={{
-                background: 'rgba(239, 68, 68, 0.1)',
-                border: '1px solid rgba(239, 68, 68, 0.2)',
-                borderRadius: '10px',
-                width: '32px',
-                height: '32px',
+                background: 'rgba(239, 68, 68, 0.08)',
+                border: '1px solid rgba(239, 68, 68, 0.15)',
+                borderRadius: '20px',
+                width: '30px',
+                height: '30px',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
                 cursor: 'pointer',
-                transition: 'all 0.2s',
+                transition: 'all 0.2s ease',
               }}
               title="ログアウト"
+              onMouseEnter={e => {
+                e.currentTarget.style.background = 'rgba(239, 68, 68, 0.2)';
+                e.currentTarget.style.borderColor = 'rgba(239, 68, 68, 0.4)';
+              }}
+              onMouseLeave={e => {
+                e.currentTarget.style.background = 'rgba(239, 68, 68, 0.08)';
+                e.currentTarget.style.borderColor = 'rgba(239, 68, 68, 0.15)';
+              }}
             >
-              <LogOut size={14} color="#f87171" />
+              <LogOut size={12} color="#f87171" />
             </button>
           )}
 
@@ -1385,15 +1415,16 @@ export default function App() {
             <div
               style={{
                 background: 'rgba(255,255,255,0.05)',
-                padding: '6px 12px',
-                borderRadius: '12px',
+                border: '1px solid rgba(255,255,255,0.08)',
+                padding: '4px 10px',
+                borderRadius: '20px',
                 display: 'flex',
                 alignItems: 'center',
                 gap: '6px',
               }}
             >
-              <Sparkles size={14} color="#ffd43b" />
-              <span style={{ fontSize: '12px', fontWeight: 600, color: '#ffd43b' }}>
+              <Sparkles size={12} color="#ffd43b" />
+              <span style={{ fontSize: '11px', fontWeight: 600, color: '#ffd43b' }}>
                 Local Mode
               </span>
             </div>
@@ -1414,32 +1445,42 @@ export default function App() {
                   'linear-gradient(135deg, rgba(27, 20, 52, 0.9) 0%, rgba(15, 18, 36, 0.9) 100%)',
                 position: 'relative',
                 overflow: 'hidden',
+                border: '1px solid rgba(139, 92, 246, 0.2)',
+                boxShadow: '0 8px 32px 0 rgba(139, 92, 246, 0.15)',
               }}
             >
               <div
                 style={{
                   position: 'absolute',
-                  top: '-50px',
-                  right: '-50px',
-                  width: '150px',
-                  height: '150px',
-                  background: 'var(--accent-purple)',
-                  filter: 'blur(80px)',
-                  opacity: 0.3,
+                  top: '-30px',
+                  right: '-30px',
+                  width: '120px',
+                  height: '120px',
+                  background: 'linear-gradient(135deg, var(--accent-purple), var(--accent-pink))',
+                  filter: 'blur(60px)',
+                  opacity: 0.4,
                   borderRadius: '50%',
                 }}
               />
 
-              <p style={{ fontSize: '14px', color: 'var(--text-secondary)', fontWeight: 500 }}>
+              <p
+                style={{
+                  fontSize: '13px',
+                  color: 'var(--text-secondary)',
+                  fontWeight: 600,
+                  letterSpacing: '0.5px',
+                }}
+              >
                 今月の総支出
               </p>
               <h2
-                className="numeric"
+                className="numeric gradient-text"
                 style={{
-                  fontSize: '42px',
+                  fontSize: '44px',
                   fontWeight: 800,
-                  margin: '8px 0',
-                  letterSpacing: '-1px',
+                  margin: '6px 0',
+                  letterSpacing: '-1.5px',
+                  display: 'inline-block',
                 }}
               >
                 ¥{totalMonthlySpend.toLocaleString()}
@@ -1451,6 +1492,7 @@ export default function App() {
                   gap: '6px',
                   fontSize: '12px',
                   color: '#51cf66',
+                  fontWeight: 500,
                 }}
               >
                 <TrendingUp size={16} />
@@ -1459,7 +1501,17 @@ export default function App() {
             </div>
 
             {/* 予算ゲージカード */}
-            <div className="glass-card" style={{ padding: '18px 20px', marginBottom: '16px' }}>
+            <div
+              className={`glass-card ${totalMonthlySpend > monthlyBudget ? 'pulsing-danger' : ''}`}
+              style={{
+                padding: '18px 20px',
+                marginBottom: '16px',
+                border:
+                  totalMonthlySpend > monthlyBudget
+                    ? '1px solid rgba(236, 72, 153, 0.4)'
+                    : '1px solid var(--bg-card-border)',
+              }}
+            >
               <div
                 style={{
                   display: 'flex',
@@ -1480,24 +1532,29 @@ export default function App() {
               <div
                 style={{
                   width: '100%',
-                  height: '10px',
-                  borderRadius: '5px',
-                  background: 'rgba(255, 255, 255, 0.05)',
+                  height: '12px',
+                  borderRadius: '6px',
+                  background: 'rgba(255, 255, 255, 0.04)',
                   overflow: 'hidden',
                   position: 'relative',
                   marginBottom: '12px',
+                  border: '1px solid rgba(255, 255, 255, 0.05)',
                 }}
               >
                 <div
                   style={{
                     width: `${Math.min(100, (totalMonthlySpend / monthlyBudget) * 100)}%`,
                     height: '100%',
-                    borderRadius: '5px',
+                    borderRadius: '6px',
                     background:
                       totalMonthlySpend > monthlyBudget
                         ? 'linear-gradient(90deg, #ec4899 0%, #ef4444 100%)'
                         : 'linear-gradient(90deg, #8b5cf6 0%, #3b82f6 100%)',
-                    transition: 'width 0.5s ease-out',
+                    boxShadow:
+                      totalMonthlySpend > monthlyBudget
+                        ? '0 0 10px rgba(236, 72, 153, 0.5)'
+                        : '0 0 10px rgba(139, 92, 246, 0.5)',
+                    transition: 'width 0.5s cubic-bezier(0.4, 0, 0.2, 1)',
                   }}
                 />
               </div>
@@ -1786,9 +1843,15 @@ export default function App() {
             <button
               onClick={() => setActiveTab('scan')}
               className="btn-primary"
-              style={{ width: '100%', padding: '16px', borderRadius: '20px', fontSize: '16px' }}
+              style={{
+                width: '100%',
+                padding: '16px',
+                borderRadius: '20px',
+                fontSize: '16px',
+                position: 'relative',
+              }}
             >
-              <Camera size={20} />
+              <Camera size={20} style={{ position: 'absolute', left: '20px' }} />
               レシートをスキャンする
             </button>
           </div>
@@ -1891,8 +1954,12 @@ export default function App() {
                     >
                       やり直す
                     </button>
-                    <button onClick={triggerScan} className="btn-primary" style={{ flex: 2 }}>
-                      <Sparkles size={18} />
+                    <button
+                      onClick={triggerScan}
+                      className="btn-primary"
+                      style={{ flex: 2, position: 'relative' }}
+                    >
+                      <Sparkles size={18} style={{ position: 'absolute', left: '20px' }} />
                       AIスキャンを開始
                     </button>
                   </div>
@@ -1913,7 +1980,7 @@ export default function App() {
                 >
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                     <Sparkles size={20} color="#8b5cf6" />
-                    <h3 style={{ fontSize: '17px', fontWeight: 700 }}>AI解析結果の確認</h3>
+                    <h3 style={{ fontSize: '17px', fontWeight: 700 }}>AI解析結果</h3>
                   </div>
                   <button
                     onClick={() => {
@@ -1981,7 +2048,7 @@ export default function App() {
                     <label
                       style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: 600 }}
                     >
-                      購入品目内訳（手動編集・追加・削除可能）
+                      購入品目内訳
                     </label>
                     <button
                       type="button"
@@ -1991,13 +2058,14 @@ export default function App() {
                         border: '1px solid rgba(139, 92, 246, 0.25)',
                         borderRadius: '20px',
                         color: '#a78bfa',
-                        padding: '4px 10px',
+                        padding: '4px 24px',
                         fontSize: '11px',
                         fontWeight: 600,
                         cursor: 'pointer',
                         display: 'flex',
                         alignItems: 'center',
-                        gap: '4px',
+                        justifyContent: 'center',
+                        position: 'relative',
                         transition: 'all 0.2s',
                       }}
                       onMouseEnter={e => {
@@ -2007,177 +2075,317 @@ export default function App() {
                         e.currentTarget.style.background = 'rgba(139, 92, 246, 0.1)';
                       }}
                     >
-                      <Plus size={12} />
-                      品目を追加
+                      <Plus size={12} style={{ position: 'absolute', left: '8px' }} />
+                      追加
                     </button>
                   </div>
 
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                     {editData.items &&
-                      editData.items.map((item, idx) => (
-                        <div
-                          key={idx}
-                          style={{
-                            display: 'flex',
-                            gap: '8px',
-                            alignItems: 'center',
-                            background: 'rgba(255, 255, 255, 0.02)',
-                            padding: '8px',
-                            borderRadius: '12px',
-                            border: '1px solid rgba(255, 255, 255, 0.03)',
-                          }}
-                        >
-                          {/* 品目名入力 */}
-                          <input
-                            type="text"
-                            placeholder="品目名（例：牛乳）"
-                            value={item.name}
-                            onChange={e => handleItemChange(idx, 'name', e.target.value)}
-                            style={{
-                              flex: 2.5,
-                              background: 'rgba(255,255,255,0.03)',
-                              border: '1px solid rgba(255,255,255,0.06)',
-                              borderRadius: '8px',
-                              color: '#fff',
-                              padding: '6px 10px',
-                              fontSize: '13px',
-                              outline: 'none',
-                              minWidth: 0,
-                            }}
-                          />
+                      editData.items.map((item, idx) => {
+                        const isExpanded = expandedItemIdx === idx;
+                        const subtotal = (item.price || 0) * (item.qty || 1);
+                        return (
+                          <div key={idx} className="ios-item-card" style={{ padding: '12px 14px' }}>
+                            {/* アコーディオンヘッダー（クリックで開閉） */}
+                            <div
+                              className="accordion-header"
+                              onClick={() => setExpandedItemIdx(isExpanded ? null : idx)}
+                              style={{ gap: '12px' }}
+                            >
+                              <div
+                                style={{
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '8px',
+                                  flex: 1,
+                                  minWidth: 0,
+                                }}
+                              >
+                                <span
+                                  style={{
+                                    fontSize: '14px',
+                                    fontWeight: 600,
+                                    color: '#fff',
+                                    overflow: 'hidden',
+                                    textOverflow: 'ellipsis',
+                                    whiteSpace: 'nowrap',
+                                    flex: '0 1 auto',
+                                  }}
+                                >
+                                  {item.name || '(未入力品目)'}
+                                </span>
+                                <span className="tax-badge">
+                                  {item.tax_rate ? `${item.tax_rate}%` : '免税'}
+                                </span>
+                              </div>
 
-                          {/* 単価入力 */}
-                          <input
-                            type="text"
-                            inputMode="numeric"
-                            placeholder="単価"
-                            value={item.price || ''}
-                            onChange={e => handleItemChange(idx, 'price', e.target.value)}
-                            style={{
-                              flex: 1.2,
-                              background: 'rgba(255,255,255,0.03)',
-                              border: '1px solid rgba(255,255,255,0.06)',
-                              borderRadius: '8px',
-                              color: '#fff',
-                              padding: '6px 4px',
-                              fontSize: '13px',
-                              outline: 'none',
-                              textAlign: 'right',
-                              minWidth: 0,
-                            }}
-                          />
+                              <div
+                                style={{
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '8px',
+                                  flexShrink: 0,
+                                }}
+                              >
+                                <div style={{ textAlign: 'right' }}>
+                                  <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
+                                    ¥{item.price || 0} × {item.qty || 1}
+                                  </div>
+                                  <div
+                                    className="numeric"
+                                    style={{
+                                      fontSize: '14px',
+                                      fontWeight: 700,
+                                      color: 'var(--text-primary)',
+                                    }}
+                                  >
+                                    ¥{subtotal.toLocaleString()}
+                                  </div>
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={e => {
+                                    e.stopPropagation();
+                                    handleRemoveItem(idx);
+                                  }}
+                                  style={{
+                                    background: 'rgba(239, 68, 68, 0.08)',
+                                    border: '1px solid rgba(239, 68, 68, 0.15)',
+                                    borderRadius: '8px',
+                                    width: '28px',
+                                    height: '28px',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    color: '#f87171',
+                                    cursor: 'pointer',
+                                    transition: 'all 0.2s ease',
+                                    padding: 0,
+                                  }}
+                                  onMouseEnter={e => {
+                                    e.currentTarget.style.background = 'rgba(239, 68, 68, 0.15)';
+                                    e.currentTarget.style.borderColor = 'rgba(239, 68, 68, 0.3)';
+                                    e.currentTarget.style.color = '#ef4444';
+                                  }}
+                                  onMouseLeave={e => {
+                                    e.currentTarget.style.background = 'rgba(239, 68, 68, 0.08)';
+                                    e.currentTarget.style.borderColor = 'rgba(239, 68, 68, 0.15)';
+                                    e.currentTarget.style.color = '#f87171';
+                                  }}
+                                  title="この品目を削除"
+                                >
+                                  <Trash2 size={13} />
+                                </button>
+                                {isExpanded ? (
+                                  <ChevronUp size={16} color="var(--text-secondary)" />
+                                ) : (
+                                  <ChevronDown size={16} color="var(--text-secondary)" />
+                                )}
+                              </div>
+                            </div>
 
-                          {/* 数量入力 */}
-                          <input
-                            type="text"
-                            inputMode="numeric"
-                            placeholder="数"
-                            value={item.qty || ''}
-                            onChange={e => handleItemChange(idx, 'qty', e.target.value)}
-                            style={{
-                              flex: 0.8,
-                              background: 'rgba(255,255,255,0.03)',
-                              border: '1px solid rgba(255,255,255,0.06)',
-                              borderRadius: '8px',
-                              color: '#fff',
-                              padding: '6px 4px',
-                              fontSize: '13px',
-                              outline: 'none',
-                              textAlign: 'center',
-                              minWidth: 0,
-                            }}
-                          />
+                            {/* アコーディオンボディ */}
+                            <div className={`accordion-body ${isExpanded ? 'open' : ''}`}>
+                              {/* 1行目: 品目名と削除ボタン */}
+                              <div
+                                style={{
+                                  display: 'flex',
+                                  gap: '8px',
+                                  width: '100%',
+                                  alignItems: 'center',
+                                  marginBottom: '8px',
+                                }}
+                              >
+                                <input
+                                  type="text"
+                                  className="premium-input"
+                                  placeholder="品目名（例：牛乳）"
+                                  value={item.name}
+                                  onChange={e => handleItemChange(idx, 'name', e.target.value)}
+                                  style={{
+                                    flex: 1,
+                                    height: '38px',
+                                    fontSize: '13.5px',
+                                    fontWeight: 500,
+                                  }}
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => handleRemoveItem(idx)}
+                                  style={{
+                                    background: 'rgba(239, 68, 68, 0.08)',
+                                    border: '1px solid rgba(239, 68, 68, 0.15)',
+                                    borderRadius: '12px',
+                                    width: '38px',
+                                    height: '38px',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    color: '#f87171',
+                                    cursor: 'pointer',
+                                    transition: 'all 0.2s ease',
+                                    flexShrink: 0,
+                                  }}
+                                  onMouseEnter={e => {
+                                    e.currentTarget.style.background = 'rgba(239, 68, 68, 0.15)';
+                                    e.currentTarget.style.borderColor = 'rgba(239, 68, 68, 0.3)';
+                                    e.currentTarget.style.color = '#ef4444';
+                                  }}
+                                  onMouseLeave={e => {
+                                    e.currentTarget.style.background = 'rgba(239, 68, 68, 0.08)';
+                                    e.currentTarget.style.borderColor = 'rgba(239, 68, 68, 0.15)';
+                                    e.currentTarget.style.color = '#f87171';
+                                  }}
+                                >
+                                  <Trash2 size={16} />
+                                </button>
+                              </div>
 
-                          {/* 税区分・税率選択 */}
-                          <select
-                            value={
-                              item.tax_rate === 8
-                                ? item.tax_included
-                                  ? '8-in'
-                                  : '8-ex'
-                                : item.tax_rate === 10
-                                  ? item.tax_included
-                                    ? '10-in'
-                                    : '10-ex'
-                                  : 'free'
-                            }
-                            onChange={e => handleTaxChange(idx, e.target.value)}
-                            style={{
-                              flex: 1.5,
-                              background: 'rgba(255,255,255,0.03)',
-                              border: '1px solid rgba(255,255,255,0.06)',
-                              borderRadius: '8px',
-                              color: 'var(--text-secondary)',
-                              padding: '6px 4px',
-                              fontSize: '11px',
-                              outline: 'none',
-                              cursor: 'pointer',
-                              minWidth: 0,
-                            }}
-                          >
-                            <option
-                              value="8-ex"
-                              style={{ background: 'var(--bg-card)', color: '#fff' }}
-                            >
-                              8% (外税)
-                            </option>
-                            <option
-                              value="8-in"
-                              style={{ background: 'var(--bg-card)', color: '#fff' }}
-                            >
-                              8% (内税)
-                            </option>
-                            <option
-                              value="10-ex"
-                              style={{ background: 'var(--bg-card)', color: '#fff' }}
-                            >
-                              10% (外税)
-                            </option>
-                            <option
-                              value="10-in"
-                              style={{ background: 'var(--bg-card)', color: '#fff' }}
-                            >
-                              10% (内税)
-                            </option>
-                            <option
-                              value="free"
-                              style={{ background: 'var(--bg-card)', color: '#fff' }}
-                            >
-                              非課税/免税
-                            </option>
-                          </select>
+                              {/* 2行目: 単価、数量ステッパー、税区分 */}
+                              <div
+                                style={{
+                                  display: 'flex',
+                                  gap: '6px',
+                                  width: '100%',
+                                  alignItems: 'center',
+                                  justifyContent: 'space-between',
+                                  flexWrap: 'nowrap',
+                                }}
+                              >
+                                {/* 単価入力 */}
+                                <div
+                                  style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '4px',
+                                    flex: 1.2,
+                                    minWidth: '75px',
+                                    position: 'relative',
+                                  }}
+                                >
+                                  <span
+                                    style={{
+                                      fontSize: '11px',
+                                      color: 'var(--text-muted)',
+                                      position: 'absolute',
+                                      left: '8px',
+                                    }}
+                                  >
+                                    ¥
+                                  </span>
+                                  <input
+                                    type="text"
+                                    inputMode="numeric"
+                                    className="premium-input numeric"
+                                    placeholder="単価"
+                                    value={item.price || ''}
+                                    onChange={e => handleItemChange(idx, 'price', e.target.value)}
+                                    style={{
+                                      width: '100%',
+                                      height: '38px',
+                                      paddingLeft: '18px',
+                                      paddingRight: '6px',
+                                      fontSize: '13.5px',
+                                      textAlign: 'right',
+                                    }}
+                                  />
+                                </div>
 
-                          {/* 削除ボタン */}
-                          <button
-                            type="button"
-                            onClick={() => handleRemoveItem(idx)}
-                            style={{
-                              background: 'rgba(239, 68, 68, 0.1)',
-                              border: '1px solid rgba(239, 68, 68, 0.2)',
-                              borderRadius: '50%',
-                              width: '28px',
-                              height: '28px',
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              color: '#f87171',
-                              cursor: 'pointer',
-                              transition: 'all 0.2s',
-                              flexShrink: 0,
-                            }}
-                            onMouseEnter={e => {
-                              e.currentTarget.style.background = 'rgba(239, 68, 68, 0.2)';
-                              e.currentTarget.style.color = '#ef4444';
-                            }}
-                            onMouseLeave={e => {
-                              e.currentTarget.style.background = 'rgba(239, 68, 68, 0.1)';
-                              e.currentTarget.style.color = '#f87171';
-                            }}
-                          >
-                            <X size={14} />
-                          </button>
-                        </div>
-                      ))}
+                                {/* 数量入力（ステッパー） */}
+                                <div
+                                  className="stepper-container"
+                                  style={{
+                                    flex: 1.1,
+                                    minWidth: '94px',
+                                    justifyContent: 'space-between',
+                                  }}
+                                >
+                                  <button
+                                    type="button"
+                                    className="stepper-btn"
+                                    onClick={() => handleQtyAdjust(idx, -1)}
+                                  >
+                                    -
+                                  </button>
+                                  <input
+                                    type="text"
+                                    inputMode="numeric"
+                                    className="stepper-input"
+                                    placeholder="数"
+                                    value={item.qty || ''}
+                                    onChange={e => handleItemChange(idx, 'qty', e.target.value)}
+                                  />
+                                  <button
+                                    type="button"
+                                    className="stepper-btn"
+                                    onClick={() => handleQtyAdjust(idx, 1)}
+                                  >
+                                    +
+                                  </button>
+                                </div>
+
+                                {/* 税区分・税率選択 */}
+                                <select
+                                  value={
+                                    item.tax_rate === 8
+                                      ? item.tax_included
+                                        ? '8-in'
+                                        : '8-ex'
+                                      : item.tax_rate === 10
+                                        ? item.tax_included
+                                          ? '10-in'
+                                          : '10-ex'
+                                        : 'free'
+                                  }
+                                  onChange={e => handleTaxChange(idx, e.target.value)}
+                                  className="premium-input"
+                                  style={{
+                                    flex: 1.2,
+                                    minWidth: '85px',
+                                    height: '38px',
+                                    fontSize: '11px',
+                                    padding: '4px 6px',
+                                    color: 'var(--text-primary)',
+                                    cursor: 'pointer',
+                                  }}
+                                >
+                                  <option
+                                    value="8-ex"
+                                    style={{ background: 'var(--bg-card)', color: '#fff' }}
+                                  >
+                                    8% (外)
+                                  </option>
+                                  <option
+                                    value="8-in"
+                                    style={{ background: 'var(--bg-card)', color: '#fff' }}
+                                  >
+                                    8% (内)
+                                  </option>
+                                  <option
+                                    value="10-ex"
+                                    style={{ background: 'var(--bg-card)', color: '#fff' }}
+                                  >
+                                    10% (外)
+                                  </option>
+                                  <option
+                                    value="10-in"
+                                    style={{ background: 'var(--bg-card)', color: '#fff' }}
+                                  >
+                                    10% (内)
+                                  </option>
+                                  <option
+                                    value="free"
+                                    style={{ background: 'var(--bg-card)', color: '#fff' }}
+                                  >
+                                    免税
+                                  </option>
+                                </select>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
                   </div>
 
                   {editData.items && editData.items.length === 0 && (
@@ -2186,7 +2394,7 @@ export default function App() {
                         fontSize: '12px',
                         color: 'var(--text-muted)',
                         textAlign: 'center',
-                        padding: '12px 0',
+                        padding: '16px 0',
                       }}
                     >
                       品目がありません。「品目を追加」から登録してください。
@@ -2194,45 +2402,81 @@ export default function App() {
                   )}
                 </div>
 
-                <div className="form-group" style={{ marginTop: '20px' }}>
-                  <label style={{ color: 'var(--text-secondary)' }}>品目小計（税抜）</label>
-                  <input
-                    type="number"
-                    className="form-control numeric"
+                {/* 品目小計（税抜） サマリーカード */}
+                <div className="summary-card">
+                  <span
+                    style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: 500 }}
+                  >
+                    品目小計 (税抜)
+                  </span>
+                  <span
+                    className="numeric"
+                    style={{ fontSize: '18px', fontWeight: 700, color: 'var(--text-primary)' }}
+                  >
+                    ¥
+                    {(editData.items || [])
+                      .reduce(
+                        (acc: number, item: ReceiptItem) =>
+                          acc + (item.price || 0) * (item.qty || 1),
+                        0
+                      )
+                      .toLocaleString()}
+                  </span>
+                </div>
+
+                {/* 合計金額（税込） サマリーカード */}
+                <div className="summary-card accent">
+                  <span style={{ fontSize: '14px', color: 'var(--text-primary)', fontWeight: 600 }}>
+                    合計金額 (税込)
+                  </span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                    <span
+                      style={{ fontSize: '20px', fontWeight: 800, color: 'var(--accent-purple)' }}
+                    >
+                      ¥
+                    </span>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      className="numeric"
+                      style={{
+                        background: 'transparent',
+                        border: 'none',
+                        borderBottom: '2px solid var(--accent-purple)',
+                        color: '#fff',
+                        fontSize: '22px',
+                        fontWeight: 800,
+                        width: '100px',
+                        textAlign: 'right',
+                        outline: 'none',
+                        padding: '0 4px',
+                      }}
+                      value={editData.total_amount || 0}
+                      onChange={e => {
+                        const val = parseInt(e.target.value.replace(/,/g, '')) || 0;
+                        setEditData({ ...editData, total_amount: val });
+                      }}
+                    />
+                  </div>
+                </div>
+
+                {/* メモ */}
+                <div className="form-group" style={{ marginTop: '16px' }}>
+                  <label
                     style={{
-                      fontSize: '16px',
-                      fontWeight: 500,
+                      fontSize: '13px',
                       color: 'var(--text-secondary)',
-                      background: 'var(--bg-glass)',
-                      cursor: 'not-allowed',
+                      marginBottom: '6px',
+                      display: 'block',
+                      fontWeight: 500,
                     }}
-                    value={(editData.items || []).reduce(
-                      (acc: number, item: ReceiptItem) => acc + (item.price || 0) * (item.qty || 1),
-                      0
-                    )}
-                    readOnly
-                    disabled
-                  />
-                </div>
-
-                <div className="form-group">
-                  <label>合計金額（税込）</label>
-                  <input
-                    type="number"
-                    className="form-control numeric"
-                    style={{ fontSize: '20px', fontWeight: 700, color: 'var(--accent-purple)' }}
-                    value={editData.total_amount || 0}
-                    onChange={e =>
-                      setEditData({ ...editData, total_amount: parseInt(e.target.value) || 0 })
-                    }
-                  />
-                </div>
-
-                <div className="form-group">
-                  <label>メモ</label>
+                  >
+                    メモ
+                  </label>
                   <input
                     type="text"
-                    className="form-control"
+                    className="premium-input"
+                    style={{ width: '100%', height: '42px' }}
                     placeholder="任意のメモを入力できます"
                     value={editData.memo || ''}
                     onChange={e => setEditData({ ...editData, memo: e.target.value })}
@@ -2250,10 +2494,10 @@ export default function App() {
                   <button
                     onClick={handleSaveTransaction}
                     className="btn-primary"
-                    style={{ flex: 2 }}
+                    style={{ flex: 2, position: 'relative' }}
                   >
-                    <Check size={18} />
-                    確定して保存
+                    <Check size={18} style={{ position: 'absolute', left: '20px' }} />
+                    確定
                   </button>
                 </div>
               </div>
