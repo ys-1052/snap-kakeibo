@@ -19,6 +19,7 @@ import {
   User,
   ChevronDown,
   ChevronUp,
+  RefreshCw,
 } from 'lucide-react';
 import {
   AreaChart,
@@ -202,6 +203,8 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'scan' | 'history' | 'settings'>(
     'dashboard'
   );
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [expandedItemIdx, setExpandedItemIdx] = useState<number | null>(null);
   const [transactions, setTransactions] = useState<Transaction[]>(() => {
     const saved = localStorage.getItem('snap_kakeibo_transactions');
@@ -263,6 +266,36 @@ export default function App() {
     return saved ? parseInt(saved) : 100000;
   });
 
+  // Pull-to-refresh
+  useEffect(() => {
+    let startY = 0;
+
+    const handleTouchStart = (e: TouchEvent) => {
+      if (window.scrollY === 0) {
+        startY = e.touches[0].clientY;
+      }
+    };
+
+    const handleTouchEnd = (e: TouchEvent) => {
+      if (window.scrollY === 0 && startY > 0) {
+        const endY = e.changedTouches[0].clientY;
+        if (endY - startY > 80) {
+          // Threshold for pull
+          setRefreshKey(prev => prev + 1);
+        }
+      }
+      startY = 0;
+    };
+
+    window.addEventListener('touchstart', handleTouchStart, { passive: true });
+    window.addEventListener('touchend', handleTouchEnd, { passive: true });
+
+    return () => {
+      window.removeEventListener('touchstart', handleTouchStart);
+      window.removeEventListener('touchend', handleTouchEnd);
+    };
+  }, []);
+
   useEffect(() => {
     localStorage.setItem('snap_kakeibo_transactions', JSON.stringify(transactions));
   }, [transactions]);
@@ -271,6 +304,7 @@ export default function App() {
   useEffect(() => {
     const fetchTransactions = async () => {
       if (!apiUrl) return;
+      setIsRefreshing(true);
       try {
         const headers: HeadersInit = {};
         if (token) {
@@ -300,11 +334,14 @@ export default function App() {
         }
       } catch (err) {
         console.error('APIからの取引履歴の取得に失敗しました:', err);
+      } finally {
+        // Minimum animation time for visual feedback
+        setTimeout(() => setIsRefreshing(false), 500);
       }
     };
 
     fetchTransactions();
-  }, [apiUrl, token, cognitoClientId]);
+  }, [apiUrl, token, cognitoClientId, refreshKey]);
 
   // SVGグラデーションを定義するために一度だけ描画するコンポーネント用
   const GradientDefs = () => (
@@ -1486,6 +1523,40 @@ export default function App() {
                 <span>{userRole}</span>
               </div>
             </div>
+          )}
+
+          {token && (
+            <button
+              onClick={() => {
+                // If we scroll down or click, we trigger refresh
+                setRefreshKey(prev => prev + 1);
+              }}
+              style={{
+                background: 'transparent',
+                border: 'none',
+                borderRadius: '20px',
+                width: '30px',
+                height: '30px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                cursor: 'pointer',
+                transition: 'all 0.2s ease',
+              }}
+              title="更新"
+              onMouseEnter={e => {
+                e.currentTarget.style.background = 'rgba(255, 255, 255, 0.05)';
+              }}
+              onMouseLeave={e => {
+                e.currentTarget.style.background = 'transparent';
+              }}
+            >
+              <RefreshCw
+                size={12}
+                color="var(--text-muted)"
+                className={isRefreshing ? 'animate-spin-fast' : ''}
+              />
+            </button>
           )}
 
           {token && (
