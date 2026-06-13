@@ -279,7 +279,8 @@ export default function App() {
     const handleTouchEnd = (e: TouchEvent) => {
       if (window.scrollY === 0 && startY > 0) {
         const endY = e.changedTouches[0].clientY;
-        if (endY - startY > 80) { // Threshold for pull
+        if (endY - startY > 80) {
+          // Threshold for pull
           setRefreshKey(prev => prev + 1);
         }
       }
