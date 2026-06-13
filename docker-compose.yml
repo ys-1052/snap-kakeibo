@@ -18,6 +18,7 @@ services:
       - DYNAMODB_TABLE=snap-kakeibo-transactions-dev
       - S3_BUCKET=snap-kakeibo-receipts-dev
       - DYNAMODB_ENDPOINT_URL=http://dynamodb-local:8000
+      - MOCK_AUTH_ENABLED=true
     depends_on:
       - dynamodb-local
     restart: always
