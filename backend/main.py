@@ -347,6 +347,17 @@ def analyze_receipt(
     S3にアップロードされた画像を Amazon Bedrock (Nova Lite) で解析し、
     JSONに構造化して返却します。
     """
+    # 0. Validate S3 File Key
+    # Prevent Path Traversal and Arbitrary Object Read
+    if not payload.file_key.startswith("uploads/"):
+        raise HTTPException(
+            status_code=400, detail="Invalid file_key: Must start with 'uploads/'"
+        )
+    if ".." in payload.file_key:
+        raise HTTPException(
+            status_code=400, detail="Invalid file_key: Path traversal not allowed"
+        )
+
     # 1. S3から画像データを取得
     try:
         response = s3_client.get_object(Bucket=BUCKET_NAME, Key=payload.file_key)
