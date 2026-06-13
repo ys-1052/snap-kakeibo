@@ -1972,6 +1972,7 @@ export default function App() {
                           borderRadius: '12px',
                           cursor: 'pointer',
                           transition: 'all 0.2s',
+                          gap: '16px',
                         }}
                         onMouseEnter={e => {
                           e.currentTarget.style.background = 'rgba(255, 255, 255, 0.05)';
@@ -1984,22 +1985,24 @@ export default function App() {
                           e.currentTarget.style.transform = 'translateX(0)';
                         }}
                       >
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flex: 1, minWidth: 0 }}>
                           <div
                             style={{
                               width: '8px',
                               height: '8px',
                               borderRadius: '50%',
                               background: CATEGORY_COLORS[t.category_name] || '#868e96',
+                              flexShrink: 0,
                             }}
                           />
-                          <div>
+                          <div style={{ flex: 1, minWidth: 0 }}>
                             <h4
                               style={{
                                 fontSize: '13px',
                                 fontWeight: 600,
                                 color: 'var(--text-primary)',
                                 margin: 0,
+                                wordBreak: 'break-word',
                               }}
                             >
                               {t.shop_name}
@@ -2015,6 +2018,7 @@ export default function App() {
                             fontSize: '14px',
                             fontWeight: 700,
                             color: 'var(--text-primary)',
+                            flexShrink: 0,
                           }}
                         >
                           ¥{t.total_amount.toLocaleString()}
@@ -2846,14 +2850,16 @@ export default function App() {
                         justifyContent: 'space-between',
                         alignItems: 'flex-start',
                         marginBottom: '8px',
+                        gap: '16px',
                       }}
                     >
-                      <div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
                         <h4
                           style={{
                             fontSize: '15px',
                             fontWeight: 600,
                             color: 'var(--text-primary)',
+                            wordBreak: 'break-word',
                           }}
                         >
                           {t.shop_name}
@@ -2893,7 +2899,7 @@ export default function App() {
                           </span>
                         </div>
                       </div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexShrink: 0 }}>
                         <span
                           className="numeric"
                           style={{
