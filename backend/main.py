@@ -218,6 +218,10 @@ class PresignedUrlResponse(BaseModel):
     file_key: str
 
 
+class ViewUrlResponse(BaseModel):
+    view_url: str
+
+
 class ReceiptItem(BaseModel):
     name: Optional[str] = Field("不明な品目", description="品目名（例：牛乳）")
     price: Optional[int] = Field(0, description="単価または明細行金額（数量反映後）")
@@ -268,6 +272,12 @@ class ReceiptAnalysisResult(BaseModel):
 
 class AnalyzeRequest(BaseModel):
     file_key: str
+
+
+class VoiceAnalyzeRequest(BaseModel):
+    text: str = Field(
+        ..., description="Web Speech APIで認識した音声テキスト（最大1000文字）"
+    )
 
 
 class TransactionSaveRequest(BaseModel):
@@ -333,6 +343,40 @@ def get_presigned_url(filename: str, current_user: dict = Depends(get_current_us
     except ClientError as e:
         raise HTTPException(
             status_code=500, detail="Failed to generate upload URL"
+        ) from e
+
+
+@app.get("/api/receipts/view-url", response_model=ViewUrlResponse)
+def get_view_url(
+    file_key: str,
+    current_user: dict = Depends(get_current_user),  # noqa: B008
+):
+    """
+    S3に保存されているレシート画像を表示するための署名付きGET URLを生成します。
+    """
+    # Path Traversalや不正なファイル読み込みを防ぐためのバリデーション
+    if not file_key.startswith("uploads/"):
+        raise HTTPException(
+            status_code=400, detail="Invalid file_key: Must start with 'uploads/'"
+        )
+    if ".." in file_key:
+        raise HTTPException(
+            status_code=400, detail="Invalid file_key: Path traversal not allowed"
+        )
+
+    try:
+        presigned_url = s3_client.generate_presigned_url(
+            "get_object",
+            Params={
+                "Bucket": BUCKET_NAME,
+                "Key": file_key,
+            },
+            ExpiresIn=600,  # 10分間有効
+        )
+        return ViewUrlResponse(view_url=presigned_url)
+    except ClientError as e:
+        raise HTTPException(
+            status_code=500, detail="Failed to generate view URL"
         ) from e
 
 
@@ -652,6 +696,117 @@ def analyze_receipt(
         raise HTTPException(
             status_code=500, detail="Bedrock AI processing failed"
         ) from e
+
+
+@app.post("/api/voice/analyze", response_model=ReceiptAnalysisResult)
+def analyze_voice(
+    payload: VoiceAnalyzeRequest,
+    current_user: dict = Depends(get_current_user),  # noqa: B008
+):
+    """
+    音声認識テキストをAmazon Bedrock (Nova Lite) で解析し、
+    家計簿用の構造化JSONに整形して返却します。
+    """
+    # 入力テキストの長さバリデーション
+    if len(payload.text.strip()) == 0:
+        raise HTTPException(status_code=400, detail="Input text must not be empty")
+    if len(payload.text) > 1000:
+        raise HTTPException(
+            status_code=400, detail="Input text must be 1000 characters or less"
+        )
+
+    today = datetime.utcnow().strftime("%Y-%m-%d")
+
+    prompt = f"""あなたは日本語の口語表現から支出情報を抽出し、家計簿アプリ用のJSONを生成する専門アシスタントです。
+
+以下の音声認識テキスト（口語・略語・省略表現を含む）から支出情報を抽出し、JSONに整形してください。
+
+【音声テキスト】
+{payload.text}
+
+【今日の日付】
+{today}
+
+【抽出ルール】
+1. 日付が明示されていない場合は今日の日付 ({today}) を使用してください。
+2. 「昨日」「今日」「今朝」などの相対表現は今日の日付を基準に計算してください。
+3. 店舗名が明示されていない場合は「不明な店舗」としてください。
+4. 金額が複数言及された場合は、最も大きい金額を合計額として、個別品目に紐付けられる金額は品目ごとに設定してください。
+5. 品目名が不明瞭・省略された場合はベストエフォートで補完し、確信が低い場合は品目名の末尾に「（推定）」を付与してください。
+6. 消費税情報は音声テキストからは通常読み取れないため、tax_rate・tax_included・tax_marker はすべて null、tax_summary は空リストにしてください。
+7. カテゴリは以下から最も適切なものを選択してください:
+   ["食費", "日用品", "交際費", "交通費", "エンタメ", "その他"]
+   - 食費: 食品・飲料・外食・コンビニなど
+   - 交通費: 電車・バス・タクシー・駐車場・ガソリンなど
+   - エンタメ: 映画・書籍・ゲームなど
+   - 日用品: 洗剤・文具・衣類など
+   - 交際費: 飲み会・プレゼントなど
+   - その他: 上記に当てはまらない場合
+8. 必ず指定されたJSONスキーマに完全準拠したJSONのみを出力してください。
+   説明文、Markdown、コードブロックは一切出力しないでください。
+
+【出力JSONスキーマ】
+{{
+  "transaction_date": "YYYY-MM-DD",
+  "shop_name": "店舗名 または 不明な店舗",
+  "total_amount": 数値,
+  "category_name": "食費 | 日用品 | 交際費 | 交通費 | エンタメ | その他",
+  "items": [
+    {{
+      "name": "品目名",
+      "price": 数値 または null,
+      "qty": 数値,
+      "tax_rate": null,
+      "tax_included": null,
+      "tax_marker": null
+    }}
+  ],
+  "tax_summary": []
+}}"""
+
+    try:
+        bedrock_response = bedrock_client.converse(
+            modelId=MODEL_ID,
+            messages=[
+                {
+                    "role": "user",
+                    "content": [{"text": prompt}],
+                }
+            ],
+            inferenceConfig={"temperature": 0, "maxTokens": 1000},
+        )
+
+        text_output = bedrock_response["output"]["message"]["content"][0][
+            "text"
+        ].strip()
+
+        # AIがMarkdownブロックで囲んだ場合のクリーニング
+        if "```json" in text_output:
+            text_output = text_output.split("```json")[1].split("```")[0].strip()
+        elif "```" in text_output:
+            text_output = text_output.split("```")[1].split("```")[0].strip()
+
+        try:
+            analysis_result = ReceiptAnalysisResult.model_validate_json(text_output)
+            return analysis_result
+        except Exception as ve:
+            print(f"[ERROR] Voice analysis Pydantic validation failed: {ve}")
+            print(f"[ERROR] Raw AI response was: {text_output}")
+            import json
+
+            raw_dict = json.loads(text_output)
+            safe_result = {
+                "transaction_date": raw_dict.get("transaction_date") or today,
+                "shop_name": raw_dict.get("shop_name") or "不明な店舗",
+                "total_amount": raw_dict.get("total_amount") or 0,
+                "category_name": raw_dict.get("category_name") or "その他",
+                "items": raw_dict.get("items") or [],
+                "tax_summary": [],
+            }
+            return safe_result
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail="Voice analysis failed") from e
 
 
 @app.post("/api/transactions")

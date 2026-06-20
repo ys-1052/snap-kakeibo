@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Camera,
   TrendingUp,
@@ -306,6 +306,20 @@ export default function App() {
   const [passkeysLoading, setPasskeysLoading] = useState(false);
   const [showPasskeys, setShowPasskeys] = useState(false);
 
+  // レシート原本表示ステート（履歴詳細モーダル用）
+  const [viewReceiptUrl, setViewReceiptUrl] = useState('');
+  const [viewReceiptLoading, setViewReceiptLoading] = useState(false);
+  const [showReceiptImage, setShowReceiptImage] = useState(false);
+
+  // レシート原本表示ステート（スキャン後フォーム用）
+  const [showScanReceiptImage, setShowScanReceiptImage] = useState(false);
+
+  // 音声入力ステート
+  const [isListening, setIsListening] = useState(false);
+  const [voiceTranscript, setVoiceTranscript] = useState('');
+  const [voiceAnalyzing, setVoiceAnalyzing] = useState(false);
+  const recognitionRef = useRef<any>(null);
+
   // Pull-to-refresh
   useEffect(() => {
     let startY = 0;
@@ -339,6 +353,18 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem('snap_kakeibo_transactions', JSON.stringify(transactions));
   }, [transactions]);
+
+  useEffect(() => {
+    setViewReceiptUrl('');
+    setShowReceiptImage(false);
+  }, [selectedTransaction]);
+
+  // editDataがクリアされたらスキャンフォームのレシート表示もリセット
+  useEffect(() => {
+    if (!editData) {
+      setShowScanReceiptImage(false);
+    }
+  }, [editData]);
 
   // 認証ヘッダー付きでAPIを呼び出すヘルパー関数（トークンの期限切れ時に自動でリフレッシュ）
   const fetchWithAuth = async (url: string, options: RequestInit = {}): Promise<Response> => {
@@ -712,6 +738,7 @@ export default function App() {
               tax_summary: [
                 { tax_rate: 8, taxable_amount: 1064, tax_amount: 85, tax_included: false },
               ],
+              receipt_s3_key: 'demo_receipt.png',
             },
             {
               shop_name: 'マツモトキヨシ 新宿東口店',
@@ -747,6 +774,7 @@ export default function App() {
               tax_summary: [
                 { tax_rate: 10, taxable_amount: 2540, tax_amount: 254, tax_included: false },
               ],
+              receipt_s3_key: 'demo_receipt.png',
             },
           ];
           const chosen = demoReceipts[Math.floor(Math.random() * demoReceipts.length)];
@@ -1241,6 +1269,108 @@ export default function App() {
       console.error('Failed to delete passkey:', err);
       alert(err.message || 'パスキーの削除中にエラーが発生しました。');
       setPasskeysLoading(false);
+    }
+  };
+
+  const handleViewReceipt = async () => {
+    if (showReceiptImage) {
+      setShowReceiptImage(false);
+      return;
+    }
+    if (viewReceiptUrl) {
+      setShowReceiptImage(true);
+      return;
+    }
+    const s3Key = editData?.receipt_s3_key;
+    if (!s3Key) return;
+
+    // ローカル環境またはデモ用のS3キーの場合は直接ローカルアセットを参照
+    if (cognitoClientId === 'local' || s3Key === 'demo_receipt.png') {
+      setViewReceiptUrl('/demo_receipt.png');
+      setShowReceiptImage(true);
+      return;
+    }
+
+    setViewReceiptLoading(true);
+    try {
+      const res = await fetchWithAuth(
+        `${apiUrl}/api/receipts/view-url?file_key=${encodeURIComponent(s3Key)}`
+      );
+      if (!res.ok) throw new Error('画像の取得に失敗しました');
+      const data = await res.json();
+      setViewReceiptUrl(data.view_url);
+      setShowReceiptImage(true);
+    } catch (err: any) {
+      console.error(err);
+      alert(err.message || 'レシート画像の取得中にエラーが発生しました。');
+    } finally {
+      setViewReceiptLoading(false);
+    }
+  };
+
+  // --- 音声入力ハンドラー ---
+
+  const handleStartVoice = () => {
+    const SpeechRecognition =
+      (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      alert('このブラウザは音声入力に対応していません。ChromeまたはSafariをご利用ください。');
+      return;
+    }
+    const recognition: any = new SpeechRecognition();
+    recognition.lang = 'ja-JP';
+    recognition.interimResults = true;
+    recognition.continuous = false;
+
+    recognition.onresult = (event: any) => {
+      const transcript = Array.from(event.results as any[])
+        .map((r: any) => r[0].transcript)
+        .join('');
+      setVoiceTranscript(transcript);
+    };
+    recognition.onend = () => setIsListening(false);
+    recognition.onerror = () => setIsListening(false);
+
+    recognitionRef.current = recognition;
+    recognition.start();
+    setIsListening(true);
+    setVoiceTranscript('');
+  };
+
+  const handleStopVoice = () => {
+    recognitionRef.current?.stop();
+    setIsListening(false);
+  };
+
+  const handleAnalyzeVoice = async () => {
+    if (!voiceTranscript.trim()) return;
+
+    // ローカルモードはデモデータでフォールバック
+    if (isLocal) {
+      setVoiceTranscript('');
+      runDemoScan();
+      return;
+    }
+
+    setVoiceAnalyzing(true);
+    setScanStep('音声をAIが解析中...');
+    setIsScanning(true);
+    try {
+      const res = await fetchWithAuth(`${apiUrl}/api/voice/analyze`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: voiceTranscript }),
+      });
+      if (!res.ok) throw new Error('音声解析に失敗しました');
+      const result = await res.json();
+      setEditData(result);
+      setVoiceTranscript('');
+    } catch (err: any) {
+      alert(`エラーが発生したため、デモモードに切り替えます: ${err.message}`);
+      runDemoScan();
+    } finally {
+      setVoiceAnalyzing(false);
+      setIsScanning(false);
     }
   };
 
@@ -2601,8 +2731,154 @@ export default function App() {
                     marginTop: '24px',
                     paddingTop: '24px',
                     borderTop: '1px solid rgba(255,255,255,0.1)',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '10px',
                   }}
                 >
+                  {/* 音声入力エリア */}
+                  {!isListening && !voiceTranscript && (
+                    <button
+                      id="voice-input-button"
+                      type="button"
+                      onClick={handleStartVoice}
+                      className="btn-secondary"
+                      style={{
+                        width: '100%',
+                        padding: '12px',
+                        borderRadius: '16px',
+                        fontSize: '14px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '8px',
+                        border: '1px solid rgba(139, 92, 246, 0.3)',
+                      }}
+                    >
+                      <span style={{ fontSize: '18px' }}>🎤</span>
+                      音声で入力する
+                    </button>
+                  )}
+
+                  {/* 音声認識中 */}
+                  {isListening && (
+                    <div
+                      style={{
+                        background: 'rgba(139, 92, 246, 0.08)',
+                        border: '1px solid rgba(139, 92, 246, 0.4)',
+                        borderRadius: '16px',
+                        padding: '16px',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '12px',
+                        alignItems: 'center',
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <span
+                          style={{
+                            display: 'inline-block',
+                            width: '12px',
+                            height: '12px',
+                            borderRadius: '50%',
+                            background: '#ef4444',
+                            animation: 'pulse 1s infinite',
+                          }}
+                        />
+                        <span style={{ fontSize: '14px', fontWeight: 600, color: '#fff' }}>
+                          音声認識中...
+                        </span>
+                      </div>
+                      {voiceTranscript && (
+                        <p
+                          style={{
+                            fontSize: '13px',
+                            color: 'var(--text-secondary)',
+                            textAlign: 'center',
+                            lineHeight: 1.6,
+                            margin: 0,
+                          }}
+                        >
+                          "{voiceTranscript}"
+                        </p>
+                      )}
+                      <button
+                        type="button"
+                        onClick={handleStopVoice}
+                        style={{
+                          background: 'rgba(239, 68, 68, 0.15)',
+                          border: '1px solid rgba(239, 68, 68, 0.4)',
+                          borderRadius: '12px',
+                          color: '#f87171',
+                          padding: '8px 20px',
+                          fontSize: '13px',
+                          fontWeight: 600,
+                          cursor: 'pointer',
+                          width: '100%',
+                        }}
+                      >
+                        ■ 停止する
+                      </button>
+                    </div>
+                  )}
+
+                  {/* 認識完了・解析ボタン */}
+                  {!isListening && voiceTranscript && (
+                    <div
+                      style={{
+                        background: 'rgba(139, 92, 246, 0.08)',
+                        border: '1px solid rgba(139, 92, 246, 0.3)',
+                        borderRadius: '16px',
+                        padding: '16px',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '10px',
+                      }}
+                    >
+                      <p
+                        style={{
+                          fontSize: '13px',
+                          color: 'var(--text-secondary)',
+                          lineHeight: 1.6,
+                          margin: 0,
+                        }}
+                      >
+                        "{voiceTranscript}"
+                      </p>
+                      <div style={{ display: 'flex', gap: '8px' }}>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setVoiceTranscript('');
+                          }}
+                          style={{
+                            background: 'rgba(255,255,255,0.05)',
+                            border: '1px solid rgba(255,255,255,0.1)',
+                            borderRadius: '12px',
+                            color: 'var(--text-secondary)',
+                            padding: '8px 14px',
+                            fontSize: '13px',
+                            cursor: 'pointer',
+                            flex: 1,
+                          }}
+                        >
+                          やり直す
+                        </button>
+                        <button
+                          id="voice-analyze-button"
+                          type="button"
+                          onClick={handleAnalyzeVoice}
+                          disabled={voiceAnalyzing}
+                          className="btn-primary"
+                          style={{ flex: 2, padding: '8px 14px', fontSize: '13px' }}
+                        >
+                          {voiceAnalyzing ? 'AI解析中...' : '✨ AIで整形する'}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* 手動入力ボタン */}
                   <button
                     onClick={() => {
                       const today = new Date().toISOString().split('T')[0];
@@ -3209,6 +3485,75 @@ export default function App() {
                     onChange={e => setEditData({ ...editData, memo: e.target.value })}
                   />
                 </div>
+
+                {/* レシート原本表示（スキャン後フォーム） */}
+                {previewUrl && (
+                  <div
+                    style={{
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '8px',
+                      marginTop: '16px',
+                    }}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => setShowScanReceiptImage(prev => !prev)}
+                      style={{
+                        background: 'rgba(255, 255, 255, 0.05)',
+                        border: '1px solid rgba(255, 255, 255, 0.1)',
+                        borderRadius: '12px',
+                        color: '#fff',
+                        padding: '10px 16px',
+                        fontSize: '13px',
+                        fontWeight: 600,
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '8px',
+                        width: '100%',
+                        transition: 'background-color 0.2s',
+                      }}
+                      onMouseEnter={e => {
+                        e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)';
+                      }}
+                      onMouseLeave={e => {
+                        e.currentTarget.style.background = 'rgba(255, 255, 255, 0.05)';
+                      }}
+                    >
+                      <Camera size={16} color="#8b5cf6" />
+                      {showScanReceiptImage
+                        ? 'レシート原本を非表示にする'
+                        : 'レシート原本を表示する'}
+                    </button>
+                    {showScanReceiptImage && (
+                      <div
+                        style={{
+                          marginTop: '4px',
+                          borderRadius: '16px',
+                          overflow: 'hidden',
+                          border: '1px solid rgba(255, 255, 255, 0.08)',
+                          background: 'rgba(0, 0, 0, 0.2)',
+                          display: 'flex',
+                          justifyContent: 'center',
+                          alignItems: 'center',
+                          maxHeight: '320px',
+                        }}
+                      >
+                        <img
+                          src={previewUrl}
+                          alt="レシート原本"
+                          style={{
+                            maxWidth: '100%',
+                            maxHeight: '320px',
+                            objectFit: 'contain',
+                          }}
+                        />
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 <div style={{ display: 'flex', gap: '12px', marginTop: '28px' }}>
                   <button
@@ -4192,6 +4537,78 @@ export default function App() {
                     }}
                   />
                 </div>
+
+                {/* レシート画像表示ボタン */}
+                {editData.receipt_s3_key && (
+                  <div
+                    style={{
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '8px',
+                      marginTop: '6px',
+                    }}
+                  >
+                    <button
+                      onClick={handleViewReceipt}
+                      type="button"
+                      style={{
+                        background: 'rgba(255, 255, 255, 0.05)',
+                        border: '1px solid rgba(255, 255, 255, 0.1)',
+                        borderRadius: '12px',
+                        color: '#fff',
+                        padding: '10px 16px',
+                        fontSize: '13px',
+                        fontWeight: 600,
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '8px',
+                        width: '100%',
+                        transition: 'background-color 0.2s',
+                      }}
+                      onMouseEnter={e => {
+                        e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)';
+                      }}
+                      onMouseLeave={e => {
+                        e.currentTarget.style.background = 'rgba(255, 255, 255, 0.05)';
+                      }}
+                    >
+                      <Camera size={16} color="#8b5cf6" />
+                      {viewReceiptLoading
+                        ? '読み込み中...'
+                        : showReceiptImage
+                          ? 'レシート原本を非表示にする'
+                          : 'レシート原本を表示する'}
+                    </button>
+
+                    {showReceiptImage && viewReceiptUrl && (
+                      <div
+                        style={{
+                          marginTop: '8px',
+                          borderRadius: '16px',
+                          overflow: 'hidden',
+                          border: '1px solid rgba(255, 255, 255, 0.08)',
+                          background: 'rgba(0, 0, 0, 0.2)',
+                          display: 'flex',
+                          justifyContent: 'center',
+                          alignItems: 'center',
+                          maxHeight: '260px',
+                        }}
+                      >
+                        <img
+                          src={viewReceiptUrl}
+                          alt="レシート原本"
+                          style={{
+                            maxWidth: '100%',
+                            maxHeight: '260px',
+                            objectFit: 'contain',
+                          }}
+                        />
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 {/* 合計金額表示 */}
                 <div
