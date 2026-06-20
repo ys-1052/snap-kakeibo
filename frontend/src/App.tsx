@@ -3435,11 +3435,11 @@ export default function App() {
                           style={{
                             background: 'rgba(255,255,255,0.01)',
                             border: '1px solid rgba(255,255,255,0.03)',
-                            borderRadius: '10px',
-                            padding: '8px',
+                            borderRadius: '12px',
+                            padding: '12px',
                             display: 'flex',
                             flexDirection: 'column',
-                            gap: '6px',
+                            gap: '10px',
                           }}
                         >
                           <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
@@ -3454,21 +3454,27 @@ export default function App() {
                                 border: 'none',
                                 borderBottom: '1px solid rgba(255,255,255,0.1)',
                                 color: '#fff',
-                                fontSize: '13px',
+                                fontSize: '15px',
                                 outline: 'none',
-                                padding: '2px 0',
+                                padding: '4px 0',
                               }}
                             />
                             <button
                               onClick={() => handleRemoveItem(index)}
                               style={{
-                                background: 'none',
+                                background: 'rgba(239, 68, 68, 0.08)',
                                 border: 'none',
+                                borderRadius: '8px',
+                                width: '28px',
+                                height: '28px',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
                                 color: '#f87171',
                                 cursor: 'pointer',
                               }}
                             >
-                              <Trash2 size={13} />
+                              <Trash2 size={14} />
                             </button>
                           </div>
                           <div
@@ -3479,8 +3485,8 @@ export default function App() {
                               justifyContent: 'space-between',
                             }}
                           >
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                              <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                              <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
                                 単価
                               </span>
                               <input
@@ -3488,14 +3494,15 @@ export default function App() {
                                 value={item.price === 0 ? '' : item.price}
                                 onChange={e => handleItemChange(index, 'price', e.target.value)}
                                 style={{
-                                  width: '60px',
+                                  width: '75px',
                                   background: 'transparent',
                                   border: 'none',
                                   borderBottom: '1px solid rgba(255,255,255,0.1)',
                                   color: '#fff',
-                                  fontSize: '12px',
+                                  fontSize: '14px',
                                   outline: 'none',
                                   textAlign: 'right',
+                                  padding: '2px 0',
                                 }}
                               />
                             </div>
@@ -3505,21 +3512,21 @@ export default function App() {
                                 style={{
                                   background: 'rgba(255,255,255,0.05)',
                                   border: 'none',
-                                  borderRadius: '4px',
-                                  width: '18px',
-                                  height: '18px',
+                                  borderRadius: '6px',
+                                  width: '26px',
+                                  height: '26px',
                                   color: '#fff',
                                   display: 'flex',
                                   alignItems: 'center',
                                   justifyContent: 'center',
-                                  fontSize: '12px',
+                                  fontSize: '14px',
                                   cursor: 'pointer',
                                 }}
                               >
                                 -
                               </button>
                               <span
-                                style={{ fontSize: '12px', minWidth: '14px', textAlign: 'center' }}
+                                style={{ fontSize: '13px', minWidth: '18px', textAlign: 'center' }}
                                 className="numeric"
                               >
                                 {item.qty}
@@ -3529,14 +3536,14 @@ export default function App() {
                                 style={{
                                   background: 'rgba(255,255,255,0.05)',
                                   border: 'none',
-                                  borderRadius: '4px',
-                                  width: '18px',
-                                  height: '18px',
+                                  borderRadius: '6px',
+                                  width: '26px',
+                                  height: '26px',
                                   color: '#fff',
                                   display: 'flex',
                                   alignItems: 'center',
                                   justifyContent: 'center',
-                                  fontSize: '12px',
+                                  fontSize: '14px',
                                   cursor: 'pointer',
                                 }}
                               >
@@ -3553,10 +3560,11 @@ export default function App() {
                               style={{
                                 background: 'rgba(255,255,255,0.05)',
                                 border: 'none',
-                                borderRadius: '4px',
+                                borderRadius: '6px',
                                 color: '#fff',
-                                fontSize: '11px',
-                                padding: '2px 4px',
+                                fontSize: '12px',
+                                padding: '4px 6px',
+                                height: '26px',
                                 cursor: 'pointer',
                                 outline: 'none',
                               }}
