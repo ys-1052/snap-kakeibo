@@ -1037,12 +1037,9 @@ export default function App() {
     if (apiUrl) {
       try {
         // キーに含まれる「#」を安全に転送するためにURLエンコードする
-        await fetchWithAuth(
-          `${apiUrl}/api/transactions/${encodeURIComponent(id)}`,
-          {
-            method: 'DELETE',
-          }
-        );
+        await fetchWithAuth(`${apiUrl}/api/transactions/${encodeURIComponent(id)}`, {
+          method: 'DELETE',
+        });
       } catch (err) {
         console.warn('サーバーでの削除に失敗しました（ローカルからのみ削除します）');
       }
