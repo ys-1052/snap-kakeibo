@@ -306,6 +306,14 @@ export default function App() {
   const [passkeysLoading, setPasskeysLoading] = useState(false);
   const [showPasskeys, setShowPasskeys] = useState(false);
 
+  // レシート原本表示ステート（履歴詳細モーダル用）
+  const [viewReceiptUrl, setViewReceiptUrl] = useState('');
+  const [viewReceiptLoading, setViewReceiptLoading] = useState(false);
+  const [showReceiptImage, setShowReceiptImage] = useState(false);
+
+  // レシート原本表示ステート（スキャン後フォーム用）
+  const [showScanReceiptImage, setShowScanReceiptImage] = useState(false);
+
   // Pull-to-refresh
   useEffect(() => {
     let startY = 0;
@@ -339,6 +347,18 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem('snap_kakeibo_transactions', JSON.stringify(transactions));
   }, [transactions]);
+
+  useEffect(() => {
+    setViewReceiptUrl('');
+    setShowReceiptImage(false);
+  }, [selectedTransaction]);
+
+  // editDataがクリアされたらスキャンフォームのレシート表示もリセット
+  useEffect(() => {
+    if (!editData) {
+      setShowScanReceiptImage(false);
+    }
+  }, [editData]);
 
   // 認証ヘッダー付きでAPIを呼び出すヘルパー関数（トークンの期限切れ時に自動でリフレッシュ）
   const fetchWithAuth = async (url: string, options: RequestInit = {}): Promise<Response> => {
@@ -712,6 +732,7 @@ export default function App() {
               tax_summary: [
                 { tax_rate: 8, taxable_amount: 1064, tax_amount: 85, tax_included: false },
               ],
+              receipt_s3_key: 'demo_receipt.png',
             },
             {
               shop_name: 'マツモトキヨシ 新宿東口店',
@@ -747,6 +768,7 @@ export default function App() {
               tax_summary: [
                 { tax_rate: 10, taxable_amount: 2540, tax_amount: 254, tax_included: false },
               ],
+              receipt_s3_key: 'demo_receipt.png',
             },
           ];
           const chosen = demoReceipts[Math.floor(Math.random() * demoReceipts.length)];
@@ -1241,6 +1263,42 @@ export default function App() {
       console.error('Failed to delete passkey:', err);
       alert(err.message || 'パスキーの削除中にエラーが発生しました。');
       setPasskeysLoading(false);
+    }
+  };
+
+  const handleViewReceipt = async () => {
+    if (showReceiptImage) {
+      setShowReceiptImage(false);
+      return;
+    }
+    if (viewReceiptUrl) {
+      setShowReceiptImage(true);
+      return;
+    }
+    const s3Key = editData?.receipt_s3_key;
+    if (!s3Key) return;
+
+    // ローカル環境またはデモ用のS3キーの場合は直接ローカルアセットを参照
+    if (cognitoClientId === 'local' || s3Key === 'demo_receipt.png') {
+      setViewReceiptUrl('/demo_receipt.png');
+      setShowReceiptImage(true);
+      return;
+    }
+
+    setViewReceiptLoading(true);
+    try {
+      const res = await fetchWithAuth(
+        `${apiUrl}/api/receipts/view-url?file_key=${encodeURIComponent(s3Key)}`
+      );
+      if (!res.ok) throw new Error('画像の取得に失敗しました');
+      const data = await res.json();
+      setViewReceiptUrl(data.view_url);
+      setShowReceiptImage(true);
+    } catch (err: any) {
+      console.error(err);
+      alert(err.message || 'レシート画像の取得中にエラーが発生しました。');
+    } finally {
+      setViewReceiptLoading(false);
     }
   };
 
@@ -3210,6 +3268,66 @@ export default function App() {
                   />
                 </div>
 
+                {/* レシート原本表示（スキャン後フォーム） */}
+                {previewUrl && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '16px' }}>
+                    <button
+                      type="button"
+                      onClick={() => setShowScanReceiptImage(prev => !prev)}
+                      style={{
+                        background: 'rgba(255, 255, 255, 0.05)',
+                        border: '1px solid rgba(255, 255, 255, 0.1)',
+                        borderRadius: '12px',
+                        color: '#fff',
+                        padding: '10px 16px',
+                        fontSize: '13px',
+                        fontWeight: 600,
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '8px',
+                        width: '100%',
+                        transition: 'background-color 0.2s',
+                      }}
+                      onMouseEnter={e => {
+                        e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)';
+                      }}
+                      onMouseLeave={e => {
+                        e.currentTarget.style.background = 'rgba(255, 255, 255, 0.05)';
+                      }}
+                    >
+                      <Camera size={16} color="#8b5cf6" />
+                      {showScanReceiptImage ? 'レシート原本を非表示にする' : 'レシート原本を表示する'}
+                    </button>
+                    {showScanReceiptImage && (
+                      <div
+                        style={{
+                          marginTop: '4px',
+                          borderRadius: '16px',
+                          overflow: 'hidden',
+                          border: '1px solid rgba(255, 255, 255, 0.08)',
+                          background: 'rgba(0, 0, 0, 0.2)',
+                          display: 'flex',
+                          justifyContent: 'center',
+                          alignItems: 'center',
+                          maxHeight: '320px',
+                        }}
+                      >
+                        <img
+                          src={previewUrl}
+                          alt="レシート原本"
+                          style={{
+                            maxWidth: '100%',
+                            maxHeight: '320px',
+                            objectFit: 'contain',
+                          }}
+                        />
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 <div style={{ display: 'flex', gap: '12px', marginTop: '28px' }}>
                   <button
                     onClick={() => setEditData(null)}
@@ -4192,6 +4310,71 @@ export default function App() {
                     }}
                   />
                 </div>
+
+                {/* レシート画像表示ボタン */}
+                {editData.receipt_s3_key && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '6px' }}>
+                    <button
+                      onClick={handleViewReceipt}
+                      type="button"
+                      style={{
+                        background: 'rgba(255, 255, 255, 0.05)',
+                        border: '1px solid rgba(255, 255, 255, 0.1)',
+                        borderRadius: '12px',
+                        color: '#fff',
+                        padding: '10px 16px',
+                        fontSize: '13px',
+                        fontWeight: 600,
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '8px',
+                        width: '100%',
+                        transition: 'background-color 0.2s',
+                      }}
+                      onMouseEnter={e => {
+                        e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)';
+                      }}
+                      onMouseLeave={e => {
+                        e.currentTarget.style.background = 'rgba(255, 255, 255, 0.05)';
+                      }}
+                    >
+                      <Camera size={16} color="#8b5cf6" />
+                      {viewReceiptLoading
+                        ? '読み込み中...'
+                        : showReceiptImage
+                        ? 'レシート原本を非表示にする'
+                        : 'レシート原本を表示する'}
+                    </button>
+
+                    {showReceiptImage && viewReceiptUrl && (
+                      <div
+                        style={{
+                          marginTop: '8px',
+                          borderRadius: '16px',
+                          overflow: 'hidden',
+                          border: '1px solid rgba(255, 255, 255, 0.08)',
+                          background: 'rgba(0, 0, 0, 0.2)',
+                          display: 'flex',
+                          justifyContent: 'center',
+                          alignItems: 'center',
+                          maxHeight: '260px',
+                        }}
+                      >
+                        <img
+                          src={viewReceiptUrl}
+                          alt="レシート原本"
+                          style={{
+                            maxWidth: '100%',
+                            maxHeight: '260px',
+                            objectFit: 'contain',
+                          }}
+                        />
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 {/* 合計金額表示 */}
                 <div
