@@ -275,7 +275,9 @@ class AnalyzeRequest(BaseModel):
 
 
 class VoiceAnalyzeRequest(BaseModel):
-    text: str = Field(..., description="Web Speech APIで認識した音声テキスト（最大1000文字）")
+    text: str = Field(
+        ..., description="Web Speech APIで認識した音声テキスト（最大1000文字）"
+    )
 
 
 class TransactionSaveRequest(BaseModel):
@@ -346,7 +348,8 @@ def get_presigned_url(filename: str, current_user: dict = Depends(get_current_us
 
 @app.get("/api/receipts/view-url", response_model=ViewUrlResponse)
 def get_view_url(
-    file_key: str, current_user: dict = Depends(get_current_user)  # noqa: B008
+    file_key: str,
+    current_user: dict = Depends(get_current_user),  # noqa: B008
 ):
     """
     S3に保存されているレシート画像を表示するための署名付きGET URLを生成します。
@@ -803,9 +806,7 @@ def analyze_voice(
             return safe_result
 
     except Exception as e:
-        raise HTTPException(
-            status_code=500, detail="Voice analysis failed"
-        ) from e
+        raise HTTPException(status_code=500, detail="Voice analysis failed") from e
 
 
 @app.post("/api/transactions")

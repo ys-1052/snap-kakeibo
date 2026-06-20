@@ -2848,7 +2848,9 @@ export default function App() {
                       <div style={{ display: 'flex', gap: '8px' }}>
                         <button
                           type="button"
-                          onClick={() => { setVoiceTranscript(''); }}
+                          onClick={() => {
+                            setVoiceTranscript('');
+                          }}
                           style={{
                             background: 'rgba(255,255,255,0.05)',
                             border: '1px solid rgba(255,255,255,0.1)',
@@ -2908,7 +2910,6 @@ export default function App() {
                 </div>
               </div>
             )}
-
 
             {/* プレビュー & スキャン実行中 */}
             {previewUrl && !editData && (
@@ -3487,7 +3488,14 @@ export default function App() {
 
                 {/* レシート原本表示（スキャン後フォーム） */}
                 {previewUrl && (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '16px' }}>
+                  <div
+                    style={{
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '8px',
+                      marginTop: '16px',
+                    }}
+                  >
                     <button
                       type="button"
                       onClick={() => setShowScanReceiptImage(prev => !prev)}
@@ -3515,7 +3523,9 @@ export default function App() {
                       }}
                     >
                       <Camera size={16} color="#8b5cf6" />
-                      {showScanReceiptImage ? 'レシート原本を非表示にする' : 'レシート原本を表示する'}
+                      {showScanReceiptImage
+                        ? 'レシート原本を非表示にする'
+                        : 'レシート原本を表示する'}
                     </button>
                     {showScanReceiptImage && (
                       <div
@@ -4530,7 +4540,14 @@ export default function App() {
 
                 {/* レシート画像表示ボタン */}
                 {editData.receipt_s3_key && (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '6px' }}>
+                  <div
+                    style={{
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '8px',
+                      marginTop: '6px',
+                    }}
+                  >
                     <button
                       onClick={handleViewReceipt}
                       type="button"
@@ -4561,8 +4578,8 @@ export default function App() {
                       {viewReceiptLoading
                         ? '読み込み中...'
                         : showReceiptImage
-                        ? 'レシート原本を非表示にする'
-                        : 'レシート原本を表示する'}
+                          ? 'レシート原本を非表示にする'
+                          : 'レシート原本を表示する'}
                     </button>
 
                     {showReceiptImage && viewReceiptUrl && (
