@@ -2468,8 +2468,8 @@ export default function App() {
                                   onChange={e => handleItemChange(idx, 'name', e.target.value)}
                                   style={{
                                     flex: 1,
-                                    height: '38px',
-                                    fontSize: '13.5px',
+                                    height: '44px',
+                                    fontSize: '15px',
                                     fontWeight: 500,
                                   }}
                                 />
@@ -2480,8 +2480,8 @@ export default function App() {
                                     background: 'rgba(239, 68, 68, 0.08)',
                                     border: '1px solid rgba(239, 68, 68, 0.15)',
                                     borderRadius: '12px',
-                                    width: '38px',
-                                    height: '38px',
+                                    width: '44px',
+                                    height: '44px',
                                     display: 'flex',
                                     alignItems: 'center',
                                     justifyContent: 'center',
@@ -2546,10 +2546,10 @@ export default function App() {
                                     onChange={e => handleItemChange(idx, 'price', e.target.value)}
                                     style={{
                                       width: '100%',
-                                      height: '38px',
+                                      height: '44px',
                                       paddingLeft: '18px',
                                       paddingRight: '6px',
-                                      fontSize: '13.5px',
+                                      fontSize: '15px',
                                       textAlign: 'right',
                                     }}
                                   />
@@ -2606,8 +2606,8 @@ export default function App() {
                                   style={{
                                     flex: 1.2,
                                     minWidth: '85px',
-                                    height: '38px',
-                                    fontSize: '11px',
+                                    height: '44px',
+                                    fontSize: '13px',
                                     padding: '4px 6px',
                                     color: 'var(--text-primary)',
                                     cursor: 'pointer',

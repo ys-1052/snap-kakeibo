@@ -67,7 +67,7 @@ body {
   border-left: 1px solid rgba(255, 255, 255, 0.03);
   border-right: 1px solid rgba(255, 255, 255, 0.03);
   box-shadow: 0 0 100px rgba(0, 0, 0, 0.8);
-  padding-bottom: 84px; /* ボトムナビゲーション用の余白 */
+  padding-bottom: 92px; /* ボトムナビゲーション用の余白 */
 }
 
 /* Glassmorphism Cards */
@@ -99,10 +99,10 @@ body {
   background: var(--grad-primary);
   border: none;
   color: #ffffff;
-  padding: 14px 28px;
-  border-radius: 16px;
+  padding: 16px 30px;
+  border-radius: 18px;
   font-weight: 600;
-  font-size: 16px;
+  font-size: 17px;
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -126,10 +126,10 @@ body {
   background: rgba(255, 255, 255, 0.05);
   border: 1px solid rgba(255, 255, 255, 0.1);
   color: var(--text-primary);
-  padding: 14px 28px;
-  border-radius: 16px;
+  padding: 16px 30px;
+  border-radius: 18px;
   font-weight: 500;
-  font-size: 16px;
+  font-size: 17px;
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -212,7 +212,7 @@ body {
   transform: translateX(-50%);
   width: 100%;
   max-width: 480px;
-  height: 74px;
+  height: 82px;
   background: rgba(18, 20, 32, 0.85);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
@@ -229,7 +229,7 @@ body {
   align-items: center;
   justify-content: center;
   color: var(--text-secondary);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 500;
   text-decoration: none;
   background: none;
@@ -267,9 +267,9 @@ body {
   background: rgba(255, 255, 255, 0.05);
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 12px;
-  padding: 12px 16px;
+  padding: 14px 18px;
   color: var(--text-primary);
-  font-size: 15px;
+  font-size: 16px;
   font-family: var(--font-primary);
   transition: all 0.2s ease;
 }
@@ -350,8 +350,8 @@ body {
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 10px;
   color: var(--text-primary);
-  padding: 8px 12px;
-  font-size: 14px;
+  padding: 10px 14px;
+  font-size: 15px;
   outline: none;
   transition: all 0.2s ease;
 }
@@ -370,21 +370,21 @@ body {
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 12px;
   padding: 2px;
-  height: 38px;
+  height: 44px;
 }
 
 .stepper-btn {
   background: transparent;
   border: none;
   color: var(--text-primary);
-  width: 32px;
-  height: 32px;
+  width: 38px;
+  height: 38px;
   border-radius: 10px;
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  font-size: 16px;
+  font-size: 18px;
   font-weight: 600;
   transition: all 0.2s;
   user-select: none;
@@ -499,7 +499,7 @@ body {
 }
 
 /* Ensure HTML5 date inputs don't overflow on mobile screens */
-input[type="date"] {
+input[type='date'] {
   width: 100% !important;
   min-width: 0 !important;
   max-width: 100% !important;
