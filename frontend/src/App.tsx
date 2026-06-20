@@ -2800,7 +2800,7 @@ export default function App() {
                   />
                 </div>
 
-                <div style={{ display: 'flex', flexDirection: 'column' }}>
+                <div>
                   <div className="form-group">
                     <label>日付</label>
                     <input
@@ -4034,8 +4034,25 @@ export default function App() {
                 </div>
 
                 {/* 日付とカテゴリ */}
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                  <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                <div
+                  style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '12px',
+                    width: '100%',
+                    minWidth: 0,
+                  }}
+                >
+                  <div
+                    style={{
+                      flex: 1,
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '6px',
+                      width: '100%',
+                      minWidth: 0,
+                    }}
+                  >
                     <label
                       style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 600 }}
                     >
@@ -4054,10 +4071,23 @@ export default function App() {
                         fontSize: '16px',
                         outline: 'none',
                         width: '100%',
+                        boxSizing: 'border-box',
+                        minWidth: 0,
+                        WebkitAppearance: 'none',
+                        appearance: 'none',
                       }}
                     />
                   </div>
-                  <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  <div
+                    style={{
+                      flex: 1,
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '6px',
+                      width: '100%',
+                      minWidth: 0,
+                    }}
+                  >
                     <label
                       style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 600 }}
                     >
@@ -4083,6 +4113,8 @@ export default function App() {
                         backgroundRepeat: 'no-repeat',
                         backgroundPosition: 'right 16px center',
                         backgroundSize: '16px',
+                        boxSizing: 'border-box',
+                        minWidth: 0,
                       }}
                     >
                       {Object.keys(CATEGORY_COLORS).map(cat => (
