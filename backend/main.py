@@ -780,3 +780,41 @@ def delete_transaction(
 
 # AWS Lambda用のハンドラー
 handler = Mangum(app)
+
+
+def post_authentication(event, context):
+    """
+    CognitoのPost Authenticationトリガー。ログイン成功時に起動してDiscordへ通知を送信します。
+    """
+    try:
+        request_data = event.get("request", {})
+        user_attributes = request_data.get("userAttributes", {})
+        email = user_attributes.get("email", "不明なユーザー")
+
+        caller_context = event.get("callerContext", {})
+        ip_address = caller_context.get("ipAddress", "不明なIP")
+        user_agent = caller_context.get("userAgent", "不明なデバイス")
+
+        # 通知メッセージの構築
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        message = (
+            f"🔓 **[SnapKakeibo] ユーザーログイン検知**\n"
+            f"👤 **ユーザー**: {email}\n"
+            f"📅 **日時**: {timestamp} (JST)\n"
+            f"🌐 **IPアドレス**: `{ip_address}`\n"
+            f"📱 **デバイス**: `{user_agent}`"
+        )
+
+        webhook_url = os.environ.get("DISCORD_WEBHOOK_URL")
+        if webhook_url:
+            payload = {"content": message}
+            response = requests.post(webhook_url, json=payload, timeout=5)
+            response.raise_for_status()
+        else:
+            print("Warning: DISCORD_WEBHOOK_URL is not set. Skip sending notification.")
+
+    except Exception as e:
+        # トリガー内のエラーでログイン処理自体が失敗しないように例外をキャッチしてログ出力します
+        print(f"Error in post_authentication trigger: {e}")
+
+    return event

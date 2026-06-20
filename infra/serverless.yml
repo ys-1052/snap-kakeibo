@@ -11,8 +11,6 @@ provider:
     DYNAMODB_TABLE: ${self:service}-transactions-${self:provider.stage}
     S3_BUCKET: ${self:service}-receipts-${self:provider.stage}
     AWS_NODEJS_CONNECTION_REUSE_ENABLED: "1"
-    COGNITO_USER_POOL_ID: !Ref CognitoUserPool
-    COGNITO_CLIENT_ID: !Ref CognitoUserPoolClient
   iam:
     role:
       statements:
@@ -59,6 +57,17 @@ functions:
       cors: true # Lambda Function URLs レベルでCORSを有効化し、ブラウザからのプリフライト(OPTIONS)リクエストを通過させます
     timeout: 30 # Bedrock解析の待機を考慮して30秒に設定
     memorySize: 512
+    environment:
+      COGNITO_USER_POOL_ID: !Ref CognitoUserPool
+      COGNITO_CLIENT_ID: !Ref CognitoUserPoolClient
+  authTrigger:
+    handler: backend/main.post_authentication
+    timeout: 10
+    memorySize: 128
+    environment:
+      DISCORD_WEBHOOK_URL: ${ssm:/snap-kakeibo/prod/discord-webhook-url, ''}
+
+
 
 custom:
   pythonRequirements:
@@ -122,6 +131,8 @@ resources:
           DefaultEmailOption: CONFIRM_WITH_CODE
           EmailMessage: "SnapKakeiboへの招待です。仮パスワードは {####} です。ログイン後に変更してください。"
           EmailSubject: "[SnapKakeibo] アカウント作成および招待コードのご案内"
+        LambdaConfig:
+          PostAuthentication: !GetAtt AuthTriggerLambdaFunction.Arn
 
     # 4. フロントエンドから直接叩くためのユーザープールクライアント
     CognitoUserPoolClient:
@@ -150,6 +161,17 @@ resources:
         GroupName: Users
         UserPoolId: !Ref CognitoUserPool
         Description: Standard user group
+
+    # CognitoからAuthTrigger Lambdaを呼び出す権限
+    CognitoInvocationPermission:
+      Type: AWS::Lambda::Permission
+      Properties:
+        Action: lambda:InvokeFunction
+        FunctionName: !GetAtt AuthTriggerLambdaFunction.Arn
+        Principal: cognito-idp.amazonaws.com
+        SourceArn: !Sub "arn:aws:cognito-idp:${AWS::Region}:${AWS::AccountId}:userpool/*"
+
+
 
     # 7. フロントエンド配信用S3バケット（プライベート）
     FrontendBucket:
