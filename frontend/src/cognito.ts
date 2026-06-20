@@ -153,4 +153,3 @@ export async function cognitoRevokeToken(
     return { success: false, error: err.message };
   }
 }
-

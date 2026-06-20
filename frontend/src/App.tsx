@@ -32,7 +32,12 @@ import {
   Pie,
   Cell,
 } from 'recharts';
-import { cognitoSignIn, cognitoRespondToNewPasswordRequired, cognitoRefreshToken, cognitoRevokeToken } from './cognito';
+import {
+  cognitoSignIn,
+  cognitoRespondToNewPasswordRequired,
+  cognitoRefreshToken,
+  cognitoRevokeToken,
+} from './cognito';
 import { CONFIG } from './config';
 
 // --- モックデータ & 型定義 ---
@@ -230,7 +235,7 @@ export default function App() {
   // 開発環境 (local) では、リロード時にログイン状態を維持するため localStorage を使用します。
   const [token, setToken] = useState(() => {
     const isLocalMode = CONFIG.COGNITO_CLIENT_ID === 'local';
-    return isLocalMode ? (localStorage.getItem('snap_kakeibo_token') || '') : '';
+    return isLocalMode ? localStorage.getItem('snap_kakeibo_token') || '' : '';
   });
   const [userEmail, setUserEmail] = useState(
     () => localStorage.getItem('snap_kakeibo_user_email') || ''
@@ -410,6 +415,7 @@ export default function App() {
     };
 
     checkSession();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cognitoClientId, cognitoRegion]);
 
   // 起動時およびapiUrl変更時にAPIから明細データを同期する
@@ -445,6 +451,7 @@ export default function App() {
     };
 
     fetchTransactions();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [apiUrl, token, cognitoClientId, refreshKey, isAuthChecking]);
 
   // SVGグラデーションを定義するために一度だけ描画するコンポーネント用
@@ -1030,9 +1037,12 @@ export default function App() {
     if (apiUrl) {
       try {
         // キーに含まれる「#」を安全に転送するためにURLエンコードする
-        const response = await fetchWithAuth(`${apiUrl}/api/transactions/${encodeURIComponent(id)}`, {
-          method: 'DELETE',
-        });
+        await fetchWithAuth(
+          `${apiUrl}/api/transactions/${encodeURIComponent(id)}`,
+          {
+            method: 'DELETE',
+          }
+        );
       } catch (err) {
         console.warn('サーバーでの削除に失敗しました（ローカルからのみ削除します）');
       }
@@ -1066,7 +1076,7 @@ export default function App() {
       cognitoRevokeToken(savedRefreshToken, {
         clientId: cognitoClientId,
         region: cognitoRegion,
-      }).catch((err) => {
+      }).catch(err => {
         console.warn('Cognito token revocation failed:', err);
       });
     }
@@ -1213,7 +1223,11 @@ export default function App() {
         }}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-          <RefreshCw className="animate-spin-fast" size={24} style={{ color: 'var(--accent-purple)' }} />
+          <RefreshCw
+            className="animate-spin-fast"
+            size={24}
+            style={{ color: 'var(--accent-purple)' }}
+          />
           <span style={{ fontSize: '16px', fontWeight: '500' }}>セッションを検証中...</span>
         </div>
       </div>
