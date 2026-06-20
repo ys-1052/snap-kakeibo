@@ -86,6 +86,12 @@ const CATEGORY_COLORS: { [key: string]: string } = {
   交際費: '#ffd43b',
   交通費: '#51cf66',
   エンタメ: '#20c997',
+  '医療・健康': '#ae3ec9',
+  '衣服・美容': '#f06595',
+  '水道・光熱': '#ff922b',
+  '通信・家賃': '#748ffc',
+  '自己投資・教育': '#15aabf',
+  '貯蓄・投資': '#94d82d',
   その他: '#868e96',
 };
 
@@ -3270,7 +3276,14 @@ export default function App() {
 
                 {/* レシート原本表示（スキャン後フォーム） */}
                 {previewUrl && (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '16px' }}>
+                  <div
+                    style={{
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '8px',
+                      marginTop: '16px',
+                    }}
+                  >
                     <button
                       type="button"
                       onClick={() => setShowScanReceiptImage(prev => !prev)}
@@ -3298,7 +3311,9 @@ export default function App() {
                       }}
                     >
                       <Camera size={16} color="#8b5cf6" />
-                      {showScanReceiptImage ? 'レシート原本を非表示にする' : 'レシート原本を表示する'}
+                      {showScanReceiptImage
+                        ? 'レシート原本を非表示にする'
+                        : 'レシート原本を表示する'}
                     </button>
                     {showScanReceiptImage && (
                       <div
@@ -4064,24 +4079,11 @@ export default function App() {
                         width: '100%',
                       }}
                     >
-                      <option value="食費" style={{ background: '#131520' }}>
-                        食費
-                      </option>
-                      <option value="日用品" style={{ background: '#131520' }}>
-                        日用品
-                      </option>
-                      <option value="交際費" style={{ background: '#131520' }}>
-                        交際費
-                      </option>
-                      <option value="交通費" style={{ background: '#131520' }}>
-                        交通費
-                      </option>
-                      <option value="エンタメ" style={{ background: '#131520' }}>
-                        エンタメ
-                      </option>
-                      <option value="その他" style={{ background: '#131520' }}>
-                        その他
-                      </option>
+                      {Object.keys(CATEGORY_COLORS).map(cat => (
+                        <option key={cat} value={cat} style={{ background: '#131520' }}>
+                          {cat}
+                        </option>
+                      ))}
                     </select>
                   </div>
                 </div>
@@ -4330,7 +4332,14 @@ export default function App() {
 
                 {/* レシート画像表示ボタン */}
                 {editData.receipt_s3_key && (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '6px' }}>
+                  <div
+                    style={{
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '8px',
+                      marginTop: '6px',
+                    }}
+                  >
                     <button
                       onClick={handleViewReceipt}
                       type="button"
@@ -4361,8 +4370,8 @@ export default function App() {
                       {viewReceiptLoading
                         ? '読み込み中...'
                         : showReceiptImage
-                        ? 'レシート原本を非表示にする'
-                        : 'レシート原本を表示する'}
+                          ? 'レシート原本を非表示にする'
+                          : 'レシート原本を表示する'}
                     </button>
 
                     {showReceiptImage && viewReceiptUrl && (
