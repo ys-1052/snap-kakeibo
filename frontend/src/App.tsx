@@ -3214,7 +3214,13 @@ export default function App() {
                   <button
                     onClick={() => setEditData(null)}
                     className="btn-secondary"
-                    style={{ flex: 1, borderRadius: '16px', padding: '16px', fontSize: '15px', whiteSpace: 'nowrap' }}
+                    style={{
+                      flex: 1,
+                      borderRadius: '16px',
+                      padding: '16px',
+                      fontSize: '15px',
+                      whiteSpace: 'nowrap',
+                    }}
                   >
                     キャンセル
                   </button>
@@ -3231,7 +3237,7 @@ export default function App() {
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'center',
-                      gap: '6px'
+                      gap: '6px',
                     }}
                   >
                     <Check size={18} />
@@ -4282,7 +4288,13 @@ export default function App() {
                       setEditData(null);
                     }}
                     className="btn-secondary"
-                    style={{ flex: 1, borderRadius: '16px', padding: '16px', fontSize: '15px', whiteSpace: 'nowrap' }}
+                    style={{
+                      flex: 1,
+                      borderRadius: '16px',
+                      padding: '16px',
+                      fontSize: '15px',
+                      whiteSpace: 'nowrap',
+                    }}
                   >
                     閉じる
                   </button>
