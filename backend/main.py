@@ -218,6 +218,10 @@ class PresignedUrlResponse(BaseModel):
     file_key: str
 
 
+class ViewUrlResponse(BaseModel):
+    view_url: str
+
+
 class ReceiptItem(BaseModel):
     name: Optional[str] = Field("不明な品目", description="品目名（例：牛乳）")
     price: Optional[int] = Field(0, description="単価または明細行金額（数量反映後）")
@@ -333,6 +337,39 @@ def get_presigned_url(filename: str, current_user: dict = Depends(get_current_us
     except ClientError as e:
         raise HTTPException(
             status_code=500, detail="Failed to generate upload URL"
+        ) from e
+
+
+@app.get("/api/receipts/view-url", response_model=ViewUrlResponse)
+def get_view_url(
+    file_key: str, current_user: dict = Depends(get_current_user)  # noqa: B008
+):
+    """
+    S3に保存されているレシート画像を表示するための署名付きGET URLを生成します。
+    """
+    # Path Traversalや不正なファイル読み込みを防ぐためのバリデーション
+    if not file_key.startswith("uploads/"):
+        raise HTTPException(
+            status_code=400, detail="Invalid file_key: Must start with 'uploads/'"
+        )
+    if ".." in file_key:
+        raise HTTPException(
+            status_code=400, detail="Invalid file_key: Path traversal not allowed"
+        )
+
+    try:
+        presigned_url = s3_client.generate_presigned_url(
+            "get_object",
+            Params={
+                "Bucket": BUCKET_NAME,
+                "Key": file_key,
+            },
+            ExpiresIn=600,  # 10分間有効
+        )
+        return ViewUrlResponse(view_url=presigned_url)
+    except ClientError as e:
+        raise HTTPException(
+            status_code=500, detail="Failed to generate view URL"
         ) from e
 
 
