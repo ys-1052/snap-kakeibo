@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Camera,
   TrendingUp,
@@ -313,6 +313,12 @@ export default function App() {
 
   // レシート原本表示ステート（スキャン後フォーム用）
   const [showScanReceiptImage, setShowScanReceiptImage] = useState(false);
+
+  // 音声入力ステート
+  const [isListening, setIsListening] = useState(false);
+  const [voiceTranscript, setVoiceTranscript] = useState('');
+  const [voiceAnalyzing, setVoiceAnalyzing] = useState(false);
+  const recognitionRef = useRef<any>(null);
 
   // Pull-to-refresh
   useEffect(() => {
@@ -1299,6 +1305,72 @@ export default function App() {
       alert(err.message || 'レシート画像の取得中にエラーが発生しました。');
     } finally {
       setViewReceiptLoading(false);
+    }
+  };
+
+  // --- 音声入力ハンドラー ---
+
+  const handleStartVoice = () => {
+    const SpeechRecognition =
+      (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      alert('このブラウザは音声入力に対応していません。ChromeまたはSafariをご利用ください。');
+      return;
+    }
+    const recognition: any = new SpeechRecognition();
+    recognition.lang = 'ja-JP';
+    recognition.interimResults = true;
+    recognition.continuous = false;
+
+    recognition.onresult = (event: any) => {
+      const transcript = Array.from(event.results as any[])
+        .map((r: any) => r[0].transcript)
+        .join('');
+      setVoiceTranscript(transcript);
+    };
+    recognition.onend = () => setIsListening(false);
+    recognition.onerror = () => setIsListening(false);
+
+    recognitionRef.current = recognition;
+    recognition.start();
+    setIsListening(true);
+    setVoiceTranscript('');
+  };
+
+  const handleStopVoice = () => {
+    recognitionRef.current?.stop();
+    setIsListening(false);
+  };
+
+  const handleAnalyzeVoice = async () => {
+    if (!voiceTranscript.trim()) return;
+
+    // ローカルモードはデモデータでフォールバック
+    if (isLocal) {
+      setVoiceTranscript('');
+      runDemoScan();
+      return;
+    }
+
+    setVoiceAnalyzing(true);
+    setScanStep('音声をAIが解析中...');
+    setIsScanning(true);
+    try {
+      const res = await fetchWithAuth(`${apiUrl}/api/voice/analyze`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: voiceTranscript }),
+      });
+      if (!res.ok) throw new Error('音声解析に失敗しました');
+      const result = await res.json();
+      setEditData(result);
+      setVoiceTranscript('');
+    } catch (err: any) {
+      alert(`エラーが発生したため、デモモードに切り替えます: ${err.message}`);
+      runDemoScan();
+    } finally {
+      setVoiceAnalyzing(false);
+      setIsScanning(false);
     }
   };
 
@@ -2659,8 +2731,152 @@ export default function App() {
                     marginTop: '24px',
                     paddingTop: '24px',
                     borderTop: '1px solid rgba(255,255,255,0.1)',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '10px',
                   }}
                 >
+                  {/* 音声入力エリア */}
+                  {!isListening && !voiceTranscript && (
+                    <button
+                      id="voice-input-button"
+                      type="button"
+                      onClick={handleStartVoice}
+                      className="btn-secondary"
+                      style={{
+                        width: '100%',
+                        padding: '12px',
+                        borderRadius: '16px',
+                        fontSize: '14px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '8px',
+                        border: '1px solid rgba(139, 92, 246, 0.3)',
+                      }}
+                    >
+                      <span style={{ fontSize: '18px' }}>🎤</span>
+                      音声で入力する
+                    </button>
+                  )}
+
+                  {/* 音声認識中 */}
+                  {isListening && (
+                    <div
+                      style={{
+                        background: 'rgba(139, 92, 246, 0.08)',
+                        border: '1px solid rgba(139, 92, 246, 0.4)',
+                        borderRadius: '16px',
+                        padding: '16px',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '12px',
+                        alignItems: 'center',
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <span
+                          style={{
+                            display: 'inline-block',
+                            width: '12px',
+                            height: '12px',
+                            borderRadius: '50%',
+                            background: '#ef4444',
+                            animation: 'pulse 1s infinite',
+                          }}
+                        />
+                        <span style={{ fontSize: '14px', fontWeight: 600, color: '#fff' }}>
+                          音声認識中...
+                        </span>
+                      </div>
+                      {voiceTranscript && (
+                        <p
+                          style={{
+                            fontSize: '13px',
+                            color: 'var(--text-secondary)',
+                            textAlign: 'center',
+                            lineHeight: 1.6,
+                            margin: 0,
+                          }}
+                        >
+                          "{voiceTranscript}"
+                        </p>
+                      )}
+                      <button
+                        type="button"
+                        onClick={handleStopVoice}
+                        style={{
+                          background: 'rgba(239, 68, 68, 0.15)',
+                          border: '1px solid rgba(239, 68, 68, 0.4)',
+                          borderRadius: '12px',
+                          color: '#f87171',
+                          padding: '8px 20px',
+                          fontSize: '13px',
+                          fontWeight: 600,
+                          cursor: 'pointer',
+                          width: '100%',
+                        }}
+                      >
+                        ■ 停止する
+                      </button>
+                    </div>
+                  )}
+
+                  {/* 認識完了・解析ボタン */}
+                  {!isListening && voiceTranscript && (
+                    <div
+                      style={{
+                        background: 'rgba(139, 92, 246, 0.08)',
+                        border: '1px solid rgba(139, 92, 246, 0.3)',
+                        borderRadius: '16px',
+                        padding: '16px',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '10px',
+                      }}
+                    >
+                      <p
+                        style={{
+                          fontSize: '13px',
+                          color: 'var(--text-secondary)',
+                          lineHeight: 1.6,
+                          margin: 0,
+                        }}
+                      >
+                        "{voiceTranscript}"
+                      </p>
+                      <div style={{ display: 'flex', gap: '8px' }}>
+                        <button
+                          type="button"
+                          onClick={() => { setVoiceTranscript(''); }}
+                          style={{
+                            background: 'rgba(255,255,255,0.05)',
+                            border: '1px solid rgba(255,255,255,0.1)',
+                            borderRadius: '12px',
+                            color: 'var(--text-secondary)',
+                            padding: '8px 14px',
+                            fontSize: '13px',
+                            cursor: 'pointer',
+                            flex: 1,
+                          }}
+                        >
+                          やり直す
+                        </button>
+                        <button
+                          id="voice-analyze-button"
+                          type="button"
+                          onClick={handleAnalyzeVoice}
+                          disabled={voiceAnalyzing}
+                          className="btn-primary"
+                          style={{ flex: 2, padding: '8px 14px', fontSize: '13px' }}
+                        >
+                          {voiceAnalyzing ? 'AI解析中...' : '✨ AIで整形する'}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* 手動入力ボタン */}
                   <button
                     onClick={() => {
                       const today = new Date().toISOString().split('T')[0];
@@ -2692,6 +2908,7 @@ export default function App() {
                 </div>
               </div>
             )}
+
 
             {/* プレビュー & スキャン実行中 */}
             {previewUrl && !editData && (
