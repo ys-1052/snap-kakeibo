@@ -153,3 +153,126 @@ export async function cognitoRevokeToken(
     return { success: false, error: err.message };
   }
 }
+
+/**
+ * ArrayBufferをBase64URL文字列に変換します
+ */
+export function arrayBufferToBase64Url(buffer: ArrayBuffer): string {
+  const bytes = new Uint8Array(buffer);
+  let binary = '';
+  for (let i = 0; i < bytes.byteLength; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  const base64 = window.btoa(binary);
+  return base64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+}
+
+/**
+ * Base64URL文字列をArrayBufferに変換します
+ */
+export function base64UrlToArrayBuffer(base64Url: string): ArrayBuffer {
+  const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+  const binary = window.atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes.buffer;
+}
+
+/**
+ * パスキー登録の開始 (StartWebAuthnRegistration)
+ */
+export async function cognitoStartWebAuthnRegistration(
+  accessToken: string,
+  config: CognitoConfig
+): Promise<any> {
+  return await cognitoRequest(config.region, 'StartWebAuthnRegistration', {
+    AccessToken: accessToken,
+  });
+}
+
+/**
+ * パスキー登録の完了 (CompleteWebAuthnRegistration)
+ */
+export async function cognitoCompleteWebAuthnRegistration(
+  accessToken: string,
+  credential: any,
+  config: CognitoConfig
+): Promise<any> {
+  return await cognitoRequest(config.region, 'CompleteWebAuthnRegistration', {
+    AccessToken: accessToken,
+    Credential: credential,
+  });
+}
+
+/**
+ * パスキーログイン要求 (InitiateAuth - USER_AUTH)
+ */
+export async function cognitoInitiateUserAuth(email: string, config: CognitoConfig): Promise<any> {
+  return await cognitoRequest(config.region, 'InitiateAuth', {
+    AuthFlow: 'USER_AUTH',
+    ClientId: config.clientId,
+    AuthParameters: {
+      USERNAME: email,
+      PREFERRED_CHALLENGE: 'WEB_AUTHN',
+    },
+  });
+}
+
+/**
+ * パスキー認証のチャレンジ応答 (RespondToAuthChallenge - WEB_AUTHN)
+ */
+export async function cognitoRespondToWebAuthnChallenge(
+  email: string,
+  session: string,
+  credential: any,
+  config: CognitoConfig
+): Promise<SignInResponse> {
+  try {
+    const data = await cognitoRequest(config.region, 'RespondToAuthChallenge', {
+      ChallengeName: 'WEB_AUTHN',
+      ClientId: config.clientId,
+      ChallengeResponses: {
+        USERNAME: email,
+        CREDENTIAL: JSON.stringify(credential),
+      },
+      Session: session,
+    });
+
+    const authResult = data.AuthenticationResult;
+    return {
+      accessToken: authResult.AccessToken,
+      idToken: authResult.IdToken,
+      refreshToken: authResult.RefreshToken,
+    };
+  } catch (err: any) {
+    return { error: err.message };
+  }
+}
+
+/**
+ * 登録されているWebAuthn認証情報の一覧を取得 (ListWebAuthnCredentials)
+ */
+export async function cognitoListWebAuthnCredentials(
+  accessToken: string,
+  config: CognitoConfig
+): Promise<any> {
+  return await cognitoRequest(config.region, 'ListWebAuthnCredentials', {
+    AccessToken: accessToken,
+  });
+}
+
+/**
+ * 登録されているWebAuthn認証情報を削除 (DeleteWebAuthnCredential)
+ */
+export async function cognitoDeleteWebAuthnCredential(
+  accessToken: string,
+  credentialId: string,
+  config: CognitoConfig
+): Promise<any> {
+  return await cognitoRequest(config.region, 'DeleteWebAuthnCredential', {
+    AccessToken: accessToken,
+    CredentialId: credentialId,
+  });
+}

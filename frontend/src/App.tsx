@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Camera,
   TrendingUp,
@@ -20,6 +20,7 @@ import {
   ChevronDown,
   ChevronUp,
   RefreshCw,
+  Key,
 } from 'lucide-react';
 import {
   AreaChart,
@@ -37,6 +38,14 @@ import {
   cognitoRespondToNewPasswordRequired,
   cognitoRefreshToken,
   cognitoRevokeToken,
+  cognitoStartWebAuthnRegistration,
+  cognitoCompleteWebAuthnRegistration,
+  cognitoInitiateUserAuth,
+  cognitoRespondToWebAuthnChallenge,
+  arrayBufferToBase64Url,
+  base64UrlToArrayBuffer,
+  cognitoListWebAuthnCredentials,
+  cognitoDeleteWebAuthnCredential,
 } from './cognito';
 import { CONFIG } from './config';
 
@@ -237,6 +246,7 @@ export default function App() {
     const isLocalMode = CONFIG.COGNITO_CLIENT_ID === 'local';
     return isLocalMode ? localStorage.getItem('snap_kakeibo_token') || '' : '';
   });
+  const [accessToken, setAccessToken] = useState('');
   const [userEmail, setUserEmail] = useState(
     () => localStorage.getItem('snap_kakeibo_user_email') || ''
   );
@@ -252,7 +262,13 @@ export default function App() {
   });
 
   // ログインフォームステート
-  const [loginEmail, setLoginEmail] = useState('');
+  const [rememberEmail, setRememberEmail] = useState(() => {
+    return localStorage.getItem('snap_kakeibo_remember_email') === 'true';
+  });
+  const [loginEmail, setLoginEmail] = useState(() => {
+    const remember = localStorage.getItem('snap_kakeibo_remember_email') === 'true';
+    return remember ? localStorage.getItem('snap_kakeibo_saved_email') || '' : '';
+  });
   const [loginPassword, setLoginPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [isNewPasswordRequired, setIsNewPasswordRequired] = useState(false);
@@ -282,6 +298,11 @@ export default function App() {
     const saved = localStorage.getItem('snap_kakeibo_budget');
     return saved ? parseInt(saved) : 100000;
   });
+
+  // パスキー一覧ステート
+  const [registeredPasskeys, setRegisteredPasskeys] = useState<any[]>([]);
+  const [passkeysLoading, setPasskeysLoading] = useState(false);
+  const [showPasskeys, setShowPasskeys] = useState(false);
 
   // Pull-to-refresh
   useEffect(() => {
@@ -331,7 +352,7 @@ export default function App() {
         });
         if (res.idToken) {
           const email = userEmail || localStorage.getItem('snap_kakeibo_user_email') || '';
-          completeLogin(res.idToken, email, res.refreshToken);
+          completeLogin(res.idToken, email, res.refreshToken, res.accessToken);
           currentToken = res.idToken;
         }
       } catch (err) {
@@ -366,7 +387,7 @@ export default function App() {
         });
         if (res.idToken) {
           const email = userEmail || localStorage.getItem('snap_kakeibo_user_email') || '';
-          completeLogin(res.idToken, email, res.refreshToken);
+          completeLogin(res.idToken, email, res.refreshToken, res.accessToken);
           // 新しいトークンでリクエストを再試行
           response = await makeRequest(res.idToken);
         } else {
@@ -402,7 +423,7 @@ export default function App() {
           });
           if (res.idToken) {
             const email = localStorage.getItem('snap_kakeibo_user_email') || '';
-            completeLogin(res.idToken, email, res.refreshToken);
+            completeLogin(res.idToken, email, res.refreshToken, res.accessToken);
           } else {
             handleLogout();
           }
@@ -1062,6 +1083,7 @@ export default function App() {
     localStorage.removeItem('snap_kakeibo_user_email');
     localStorage.removeItem('snap_kakeibo_user_role');
     setToken('');
+    setAccessToken('');
     setUserEmail('');
     setUserRole('一般');
     setIsNewPasswordRequired(false);
@@ -1123,7 +1145,7 @@ export default function App() {
         setIsNewPasswordRequired(true);
         setCognitoSession(res.session);
       } else if (res.idToken) {
-        completeLogin(res.idToken, loginEmail, res.refreshToken);
+        completeLogin(res.idToken, loginEmail, res.refreshToken, res.accessToken);
       }
     } catch (err: any) {
       setAuthError(err.message || 'ログイン中にエラーが発生しました。');
@@ -1158,7 +1180,7 @@ export default function App() {
       } else if (res.idToken) {
         setIsNewPasswordRequired(false);
         setCognitoSession('');
-        completeLogin(res.idToken, loginEmail, res.refreshToken);
+        completeLogin(res.idToken, loginEmail, res.refreshToken, res.accessToken);
       }
     } catch (err: any) {
       setAuthError(err.message || 'パスワード変更中にエラーが発生しました。');
@@ -1167,7 +1189,265 @@ export default function App() {
     }
   };
 
-  const completeLogin = (idToken: string, email: string, refreshToken?: string) => {
+  const formatCreatedAt = (val: any) => {
+    if (!val) return '不明';
+    try {
+      if (typeof val === 'string' && val.includes('-')) {
+        return new Date(val).toLocaleString('ja-JP', { dateStyle: 'medium', timeStyle: 'short' });
+      }
+      const num = Number(val);
+      if (!isNaN(num)) {
+        const ms = num < 10000000000 ? num * 1000 : num;
+        return new Date(ms).toLocaleString('ja-JP', { dateStyle: 'medium', timeStyle: 'short' });
+      }
+      return String(val);
+    } catch (e) {
+      return '不明';
+    }
+  };
+
+  const loadPasskeys = useCallback(async () => {
+    if (!accessToken || cognitoClientId === 'local') return;
+    setPasskeysLoading(true);
+    try {
+      const res = await cognitoListWebAuthnCredentials(accessToken, {
+        clientId: cognitoClientId,
+        region: cognitoRegion,
+      });
+      if (res && res.Credentials) {
+        setRegisteredPasskeys(res.Credentials);
+      }
+    } catch (err: any) {
+      console.error('Failed to list passkeys:', err);
+    } finally {
+      setPasskeysLoading(false);
+    }
+  }, [accessToken, cognitoClientId, cognitoRegion]);
+
+  const handlePasskeyDelete = async (credentialId: string) => {
+    if (!window.confirm('このパスキーを削除してもよろしいですか？')) return;
+    if (!accessToken) return;
+    setPasskeysLoading(true);
+    try {
+      await cognitoDeleteWebAuthnCredential(accessToken, credentialId, {
+        clientId: cognitoClientId,
+        region: cognitoRegion,
+      });
+      alert('パスキーを削除しました。');
+      await loadPasskeys();
+    } catch (err: any) {
+      console.error('Failed to delete passkey:', err);
+      alert(err.message || 'パスキーの削除中にエラーが発生しました。');
+      setPasskeysLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === 'settings' && accessToken && cognitoClientId !== 'local') {
+      loadPasskeys();
+    }
+  }, [activeTab, accessToken, cognitoClientId, loadPasskeys]);
+
+  const handlePasskeyRegister = async () => {
+    if (!accessToken) {
+      alert('パスキーを登録するには、ログインしている必要があります。');
+      return;
+    }
+
+    setAuthLoading(true);
+    setAuthError('');
+
+    try {
+      // 1. パスキー登録の開始
+      const res = await cognitoStartWebAuthnRegistration(accessToken, {
+        clientId: cognitoClientId,
+        region: cognitoRegion,
+      });
+
+      const rawOptions = res.CredentialCreationOptions;
+      if (!rawOptions) {
+        throw new Error('パスキー登録パラメータの取得に失敗しました。');
+      }
+
+      // 2. クレデンシャル作成オプションをWebAuthn用にバイナリ化
+      const options = {
+        ...rawOptions,
+        challenge: base64UrlToArrayBuffer(rawOptions.challenge),
+        user: {
+          ...rawOptions.user,
+          id: base64UrlToArrayBuffer(rawOptions.user.id),
+        },
+        excludeCredentials: rawOptions.excludeCredentials
+          ? rawOptions.excludeCredentials.map((cred: any) => ({
+              ...cred,
+              id: base64UrlToArrayBuffer(cred.id),
+            }))
+          : undefined,
+      };
+
+      // 3. ブラウザで認証情報を生成
+      const credential = (await navigator.credentials.create({
+        publicKey: options,
+      })) as PublicKeyCredential;
+
+      if (!credential) {
+        throw new Error('パスキーの生成に失敗しました。');
+      }
+
+      // 4. 生成されたアテステーションレスポンスをBase64URLに変換
+      const response = credential.response as AuthenticatorAttestationResponse;
+      const credentialObj = {
+        id: credential.id,
+        rawId: arrayBufferToBase64Url(credential.rawId),
+        type: credential.type,
+        response: {
+          clientDataJSON: arrayBufferToBase64Url(response.clientDataJSON),
+          attestationObject: arrayBufferToBase64Url(response.attestationObject),
+          transports: typeof response.getTransports === 'function' ? response.getTransports() : [],
+        },
+        authenticatorAttachment: credential.authenticatorAttachment,
+      };
+
+      // 5. 登録の完了
+      await cognitoCompleteWebAuthnRegistration(accessToken, credentialObj, {
+        clientId: cognitoClientId,
+        region: cognitoRegion,
+      });
+
+      alert('パスキーを正常に登録しました！次回からパスキーでログインできます。');
+      await loadPasskeys();
+    } catch (err: any) {
+      console.error(err);
+      if (err.name === 'NotAllowedError') {
+        alert('パスキー登録がキャンセルされました。');
+      } else if (
+        err.name === 'InvalidStateError' ||
+        (err.message && err.message.toLowerCase().includes('invalid state'))
+      ) {
+        alert('このパスキー（またはデバイス）は既に登録されています。');
+      } else {
+        const msg = err.message || '';
+        if (msg.includes('already registered')) {
+          alert('このパスキー（またはデバイス）は既に登録されています。');
+        } else if (msg.includes('not enabled')) {
+          alert('このユーザープールではパスキー（WebAuthn）認証が有効化されていません。');
+        } else if (msg.includes('not valid')) {
+          alert('登録しようとしたパスキー情報が無効です。');
+        } else {
+          alert(msg || 'パスキー登録中にエラーが発生しました。');
+        }
+      }
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  const handlePasskeyLogin = async () => {
+    if (!loginEmail) {
+      setAuthError('パスキーでログインするには、まずメールアドレスを入力してください。');
+      return;
+    }
+
+    setAuthLoading(true);
+    setAuthError('');
+
+    try {
+      // 1. パスキー認証の開始 (USER_AUTH flow)
+      const res = await cognitoInitiateUserAuth(loginEmail, {
+        clientId: cognitoClientId,
+        region: cognitoRegion,
+      });
+
+      if (res.ChallengeName !== 'WEB_AUTHN') {
+        throw new Error(
+          'パスキー認証に対応していません。設定からパスキーを登録しているかご確認ください。'
+        );
+      }
+
+      const session = res.Session;
+      const challengeParams = res.ChallengeParameters;
+      const credentialRequestOptionsStr = challengeParams.CREDENTIAL_REQUEST_OPTIONS;
+      if (!credentialRequestOptionsStr) {
+        throw new Error('認証パラメータの取得に失敗しました。');
+      }
+
+      // 2. クレデンシャルリクエストオプションをパースしてWebAuthn用に変換
+      const rawOptions = JSON.parse(credentialRequestOptionsStr);
+      const options = {
+        ...rawOptions,
+        challenge: base64UrlToArrayBuffer(rawOptions.challenge),
+        allowCredentials: rawOptions.allowCredentials
+          ? rawOptions.allowCredentials.map((cred: any) => ({
+              ...cred,
+              id: base64UrlToArrayBuffer(cred.id),
+            }))
+          : undefined,
+      };
+
+      // 3. ブラウザで認証情報を取得
+      const assertion = (await navigator.credentials.get({
+        publicKey: options,
+      })) as PublicKeyCredential;
+
+      if (!assertion) {
+        throw new Error('パスキーアサーションの取得に失敗しました。');
+      }
+
+      // 4. アサーションのバイナリフィールドをBase64URLに変換
+      const response = assertion.response as AuthenticatorAssertionResponse;
+      const credentialObj = {
+        id: assertion.id,
+        rawId: arrayBufferToBase64Url(assertion.rawId),
+        type: assertion.type,
+        response: {
+          clientDataJSON: arrayBufferToBase64Url(response.clientDataJSON),
+          authenticatorData: arrayBufferToBase64Url(response.authenticatorData),
+          signature: arrayBufferToBase64Url(response.signature),
+          userHandle: response.userHandle ? arrayBufferToBase64Url(response.userHandle) : null,
+        },
+      };
+
+      // 5. チャレンジに回答
+      const signInRes = await cognitoRespondToWebAuthnChallenge(
+        loginEmail,
+        session,
+        credentialObj,
+        {
+          clientId: cognitoClientId,
+          region: cognitoRegion,
+        }
+      );
+
+      if (signInRes.error) {
+        setAuthError(signInRes.error);
+      } else if (signInRes.idToken) {
+        completeLogin(signInRes.idToken, loginEmail, signInRes.refreshToken, signInRes.accessToken);
+      }
+    } catch (err: any) {
+      console.error(err);
+      if (err.name === 'NotAllowedError') {
+        setAuthError('パスキー認証がキャンセルされました。');
+      } else {
+        const msg = err.message || '';
+        if (msg.includes('user not found') || msg.includes('UserNotFoundException')) {
+          setAuthError('ユーザーが見つかりません。入力したメールアドレスをご確認ください。');
+        } else if (msg.includes('not enabled')) {
+          setAuthError('このユーザープールではパスキー（WebAuthn）認証が有効化されていません。');
+        } else {
+          setAuthError(msg || 'パスキーログイン中にエラーが発生しました。');
+        }
+      }
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  const completeLogin = (
+    idToken: string,
+    email: string,
+    refreshToken?: string,
+    accessTok?: string
+  ) => {
     // 開発用の擬似認証（local）の場合のみ、ID TokenをlocalStorageに永続化し、本番環境ではメモリ上（state）のみで保持します。
     if (cognitoClientId === 'local') {
       localStorage.setItem('snap_kakeibo_token', idToken);
@@ -1175,6 +1455,14 @@ export default function App() {
     localStorage.setItem('snap_kakeibo_user_email', email);
     if (refreshToken) {
       localStorage.setItem('snap_kakeibo_refresh_token', refreshToken);
+    }
+
+    if (rememberEmail) {
+      localStorage.setItem('snap_kakeibo_remember_email', 'true');
+      localStorage.setItem('snap_kakeibo_saved_email', email);
+    } else {
+      localStorage.setItem('snap_kakeibo_remember_email', 'false');
+      localStorage.removeItem('snap_kakeibo_saved_email');
     }
 
     let role = '一般';
@@ -1191,6 +1479,7 @@ export default function App() {
 
     localStorage.setItem('snap_kakeibo_user_role', role);
     setToken(idToken);
+    setAccessToken(accessTok || '');
     setUserEmail(email);
     setUserRole(role);
     setLoginPassword('');
@@ -1403,6 +1692,40 @@ export default function App() {
                 </div>
               </div>
 
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  marginTop: '-4px',
+                  userSelect: 'none',
+                }}
+              >
+                <input
+                  type="checkbox"
+                  id="remember-email"
+                  checked={rememberEmail}
+                  onChange={e => setRememberEmail(e.target.checked)}
+                  style={{
+                    cursor: 'pointer',
+                    width: '16px',
+                    height: '16px',
+                    accentColor: 'var(--accent-purple)',
+                  }}
+                />
+                <label
+                  htmlFor="remember-email"
+                  style={{
+                    fontSize: '12px',
+                    color: 'var(--text-secondary)',
+                    cursor: 'pointer',
+                    fontWeight: 500,
+                  }}
+                >
+                  メールアドレスを記憶する
+                </label>
+              </div>
+
               <button
                 type="submit"
                 className="btn btn-primary"
@@ -1422,6 +1745,31 @@ export default function App() {
               >
                 {authLoading ? 'ログイン中...' : 'ログイン'}
               </button>
+
+              {cognitoClientId !== 'local' && (
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={handlePasskeyLogin}
+                  style={{
+                    width: '100%',
+                    height: '46px',
+                    fontSize: '14px',
+                    fontWeight: 600,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '8px',
+                    cursor: 'pointer',
+                    background: 'rgba(255, 255, 255, 0.05)',
+                    border: '1px solid rgba(255, 255, 255, 0.1)',
+                  }}
+                  disabled={authLoading}
+                >
+                  <Key size={16} />
+                  パスキーでログイン
+                </button>
+              )}
             </form>
           ) : (
             // 初回パスワード強制変更フォーム
@@ -3167,6 +3515,221 @@ export default function App() {
             >
               設定を保存
             </button>
+
+            {cognitoClientId !== 'local' && (
+              <div
+                style={{
+                  marginTop: '30px',
+                  paddingTop: '20px',
+                  borderTop: '1px solid rgba(255, 255, 255, 0.08)',
+                }}
+              >
+                <h4
+                  style={{
+                    fontSize: '15px',
+                    fontWeight: 600,
+                    marginBottom: '12px',
+                    color: 'var(--text-primary)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                  }}
+                >
+                  <Key size={18} color="#10b981" />
+                  セキュリティ設定
+                </h4>
+
+                <div
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    marginBottom: '16px',
+                    padding: '8px 0',
+                  }}
+                >
+                  <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
+                    パスキー登録状態
+                  </span>
+                  {passkeysLoading ? (
+                    <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>確認中...</span>
+                  ) : registeredPasskeys.length > 0 ? (
+                    <span
+                      style={{
+                        background: 'rgba(16, 185, 129, 0.15)',
+                        color: '#10b981',
+                        padding: '4px 10px',
+                        borderRadius: '20px',
+                        fontSize: '12px',
+                        fontWeight: 600,
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                      }}
+                    >
+                      <span
+                        style={{
+                          width: '6px',
+                          height: '6px',
+                          borderRadius: '50%',
+                          backgroundColor: '#10b981',
+                        }}
+                      ></span>
+                      登録済み
+                    </span>
+                  ) : (
+                    <span
+                      style={{
+                        background: 'rgba(255, 255, 255, 0.08)',
+                        color: 'var(--text-muted)',
+                        padding: '4px 10px',
+                        borderRadius: '20px',
+                        fontSize: '12px',
+                        fontWeight: 600,
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                      }}
+                    >
+                      <span
+                        style={{
+                          width: '6px',
+                          height: '6px',
+                          borderRadius: '50%',
+                          backgroundColor: 'var(--text-muted)',
+                        }}
+                      ></span>
+                      未登録
+                    </span>
+                  )}
+                </div>
+
+                {registeredPasskeys.length > 0 && (
+                  <div
+                    style={{
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '10px',
+                      marginBottom: '20px',
+                    }}
+                  >
+                    <button
+                      onClick={() => setShowPasskeys(!showPasskeys)}
+                      style={{
+                        background: 'none',
+                        border: 'none',
+                        color: 'var(--text-secondary)',
+                        fontSize: '12px',
+                        fontWeight: 600,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        width: '100%',
+                        padding: '6px 0',
+                        cursor: 'pointer',
+                        userSelect: 'none',
+                      }}
+                    >
+                      <span>登録済みのパスキー一覧 ({registeredPasskeys.length}件)</span>
+                      {showPasskeys ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                    </button>
+
+                    {showPasskeys && (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                        {registeredPasskeys.map(cred => (
+                          <div
+                            key={cred.CredentialId}
+                            style={{
+                              padding: '12px 16px',
+                              borderRadius: '12px',
+                              display: 'flex',
+                              justifyContent: 'space-between',
+                              alignItems: 'center',
+                              border: '1px solid rgba(255, 255, 255, 0.05)',
+                              background: 'rgba(255, 255, 255, 0.02)',
+                            }}
+                          >
+                            <div
+                              style={{
+                                display: 'flex',
+                                flexDirection: 'column',
+                                gap: '2px',
+                                overflow: 'hidden',
+                                marginRight: '8px',
+                              }}
+                            >
+                              <span
+                                style={{
+                                  fontSize: '13px',
+                                  fontWeight: 600,
+                                  color: 'var(--text-primary)',
+                                  whiteSpace: 'nowrap',
+                                  overflow: 'hidden',
+                                  textOverflow: 'ellipsis',
+                                }}
+                              >
+                                {cred.FriendlyCredentialName || '登録済みパスキー'}
+                              </span>
+                              <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                                作成日: {formatCreatedAt(cred.CreatedAt)}
+                              </span>
+                            </div>
+                            <button
+                              onClick={() => handlePasskeyDelete(cred.CredentialId)}
+                              style={{
+                                background: 'none',
+                                border: 'none',
+                                color: '#ef4444',
+                                cursor: 'pointer',
+                                padding: '6px',
+                                borderRadius: '8px',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                transition: 'background-color 0.2s',
+                              }}
+                              onMouseEnter={e =>
+                                (e.currentTarget.style.backgroundColor = 'rgba(239, 68, 68, 0.1)')
+                              }
+                              onMouseLeave={e =>
+                                (e.currentTarget.style.backgroundColor = 'transparent')
+                              }
+                              title="削除"
+                            >
+                              <Trash2 size={16} />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                <p
+                  style={{
+                    fontSize: '12px',
+                    color: 'var(--text-secondary)',
+                    marginBottom: '14px',
+                    lineHeight: 1.4,
+                  }}
+                >
+                  このデバイスを登録すると、次回からパスワード不要で安全にログインできます。
+                </p>
+                <button
+                  onClick={handlePasskeyRegister}
+                  className="btn-secondary"
+                  style={{
+                    width: '100%',
+                    fontSize: '14px',
+                    padding: '12px 20px',
+                    borderRadius: '12px',
+                  }}
+                  disabled={authLoading || passkeysLoading}
+                >
+                  {authLoading ? '登録処理中...' : 'このデバイスをパスキー登録する'}
+                </button>
+              </div>
+            )}
           </div>
         )}
       </main>

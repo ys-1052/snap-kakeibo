@@ -145,6 +145,8 @@ resources:
           - ALLOW_USER_PASSWORD_AUTH
           - ALLOW_REFRESH_TOKEN_AUTH
           - ALLOW_USER_SRP_AUTH
+          - ALLOW_USER_AUTH
+
 
     # 5. 管理者権限グループ (Admins)
     CognitoUserPoolGroupAdmins:
