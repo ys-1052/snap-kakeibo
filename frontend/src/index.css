@@ -497,3 +497,11 @@ body {
 .animate-spin-fast {
   animation: spin 0.5s linear infinite;
 }
+
+/* Ensure HTML5 date inputs don't overflow on mobile screens */
+input[type="date"] {
+  width: 100% !important;
+  min-width: 0 !important;
+  max-width: 100% !important;
+  box-sizing: border-box !important;
+}
