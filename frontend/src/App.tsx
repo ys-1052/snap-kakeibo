@@ -4071,12 +4071,18 @@ export default function App() {
                         border: '1px solid rgba(255, 255, 255, 0.08)',
                         borderRadius: '12px',
                         color: '#fff',
-                        padding: '12px 16px',
+                        padding: '12px 40px 12px 16px',
                         fontSize: '16px',
                         outline: 'none',
                         height: '48px',
                         cursor: 'pointer',
                         width: '100%',
+                        appearance: 'none',
+                        WebkitAppearance: 'none',
+                        backgroundImage: `url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23a1a1aa' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E")`,
+                        backgroundRepeat: 'no-repeat',
+                        backgroundPosition: 'right 16px center',
+                        backgroundSize: '16px',
                       }}
                     >
                       {Object.keys(CATEGORY_COLORS).map(cat => (
