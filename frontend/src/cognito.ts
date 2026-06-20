@@ -107,3 +107,50 @@ export async function cognitoRespondToNewPasswordRequired(
     return { error: err.message };
   }
 }
+
+/**
+ * リフレッシュトークンを用いたトークンの再発行 (InitiateAuth - REFRESH_TOKEN_AUTH)
+ */
+export async function cognitoRefreshToken(
+  refreshToken: string,
+  config: CognitoConfig
+): Promise<SignInResponse> {
+  try {
+    const data = await cognitoRequest(config.region, 'InitiateAuth', {
+      AuthFlow: 'REFRESH_TOKEN_AUTH',
+      ClientId: config.clientId,
+      AuthParameters: {
+        REFRESH_TOKEN: refreshToken,
+      },
+    });
+
+    const authResult = data.AuthenticationResult;
+    return {
+      accessToken: authResult.AccessToken,
+      idToken: authResult.IdToken,
+      // APIの返却値に新しいリフレッシュトークンが含まれない場合は元のトークンを維持
+      refreshToken: authResult.RefreshToken || refreshToken,
+    };
+  } catch (err: any) {
+    return { error: err.message };
+  }
+}
+
+/**
+ * リフレッシュトークンの無効化 (RevokeToken)
+ */
+export async function cognitoRevokeToken(
+  refreshToken: string,
+  config: CognitoConfig
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    await cognitoRequest(config.region, 'RevokeToken', {
+      ClientId: config.clientId,
+      Token: refreshToken,
+    });
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, error: err.message };
+  }
+}
+

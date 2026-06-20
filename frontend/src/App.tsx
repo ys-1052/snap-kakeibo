@@ -32,7 +32,7 @@ import {
   Pie,
   Cell,
 } from 'recharts';
-import { cognitoSignIn, cognitoRespondToNewPasswordRequired } from './cognito';
+import { cognitoSignIn, cognitoRespondToNewPasswordRequired, cognitoRefreshToken, cognitoRevokeToken } from './cognito';
 import { CONFIG } from './config';
 
 // --- モックデータ & 型定義 ---
@@ -226,13 +226,25 @@ export default function App() {
   const cognitoRegion = CONFIG.COGNITO_REGION || 'ap-northeast-1';
 
   // 認証ステート
-  const [token, setToken] = useState(() => localStorage.getItem('snap_kakeibo_token') || '');
+  // セキュリティ向上のため、本番環境 (cognitoClientId != 'local') では ID Token を localStorage に保存せず、メモリ上 (state) のみで管理します。
+  // 開発環境 (local) では、リロード時にログイン状態を維持するため localStorage を使用します。
+  const [token, setToken] = useState(() => {
+    const isLocalMode = CONFIG.COGNITO_CLIENT_ID === 'local';
+    return isLocalMode ? (localStorage.getItem('snap_kakeibo_token') || '') : '';
+  });
   const [userEmail, setUserEmail] = useState(
     () => localStorage.getItem('snap_kakeibo_user_email') || ''
   );
   const [userRole, setUserRole] = useState(
     () => localStorage.getItem('snap_kakeibo_user_role') || '一般'
   );
+
+  // マウント時のセッション確認状態
+  const [isAuthChecking, setIsAuthChecking] = useState(() => {
+    const isLocalMode = CONFIG.COGNITO_CLIENT_ID === 'local';
+    const hasRefreshToken = !!localStorage.getItem('snap_kakeibo_refresh_token');
+    return !isLocalMode && hasRefreshToken;
+  });
 
   // ログインフォームステート
   const [loginEmail, setLoginEmail] = useState('');
@@ -300,21 +312,113 @@ export default function App() {
     localStorage.setItem('snap_kakeibo_transactions', JSON.stringify(transactions));
   }, [transactions]);
 
+  // 認証ヘッダー付きでAPIを呼び出すヘルパー関数（トークンの期限切れ時に自動でリフレッシュ）
+  const fetchWithAuth = async (url: string, options: RequestInit = {}): Promise<Response> => {
+    let currentToken = token;
+
+    // もしステートのトークンがないが、localStorageにリフレッシュトークンがある場合、自動リフレッシュを試みる
+    const savedRefreshToken = localStorage.getItem('snap_kakeibo_refresh_token');
+    if (!currentToken && savedRefreshToken && cognitoClientId && cognitoClientId !== 'local') {
+      try {
+        const res = await cognitoRefreshToken(savedRefreshToken, {
+          clientId: cognitoClientId,
+          region: cognitoRegion,
+        });
+        if (res.idToken) {
+          const email = userEmail || localStorage.getItem('snap_kakeibo_user_email') || '';
+          completeLogin(res.idToken, email, res.refreshToken);
+          currentToken = res.idToken;
+        }
+      } catch (err) {
+        console.error('Silent refresh failed on request start:', err);
+      }
+    }
+
+    const makeRequest = async (t: string) => {
+      const headers = {
+        ...(options.headers || {}),
+      } as Record<string, string>;
+      if (t) {
+        headers['Authorization'] = `Bearer ${t}`;
+      }
+      return fetch(url, { ...options, headers });
+    };
+
+    let response = await makeRequest(currentToken);
+
+    // トークン期限切れ（401）の場合、自動的にリフレッシュトークンで再取得を試みる
+    if (
+      response.status === 401 &&
+      cognitoClientId &&
+      cognitoClientId !== 'local' &&
+      savedRefreshToken
+    ) {
+      console.log('ID Token expired. Attempting silent refresh...');
+      try {
+        const res = await cognitoRefreshToken(savedRefreshToken, {
+          clientId: cognitoClientId,
+          region: cognitoRegion,
+        });
+        if (res.idToken) {
+          const email = userEmail || localStorage.getItem('snap_kakeibo_user_email') || '';
+          completeLogin(res.idToken, email, res.refreshToken);
+          // 新しいトークンでリクエストを再試行
+          response = await makeRequest(res.idToken);
+        } else {
+          handleLogout();
+        }
+      } catch (err) {
+        console.error('Silent refresh failed during API call:', err);
+        handleLogout();
+      }
+    } else if (response.status === 401 && cognitoClientId) {
+      handleLogout();
+    }
+
+    return response;
+  };
+
+  // マウント時にリフレッシュトークンによるセッション復旧を試みる
+  useEffect(() => {
+    const checkSession = async () => {
+      const isLocalMode = cognitoClientId === 'local';
+      if (isLocalMode) {
+        setIsAuthChecking(false);
+        return;
+      }
+
+      const savedRefreshToken = localStorage.getItem('snap_kakeibo_refresh_token');
+      if (savedRefreshToken && cognitoClientId) {
+        console.log('Mount: checking session via silent refresh...');
+        try {
+          const res = await cognitoRefreshToken(savedRefreshToken, {
+            clientId: cognitoClientId,
+            region: cognitoRegion,
+          });
+          if (res.idToken) {
+            const email = localStorage.getItem('snap_kakeibo_user_email') || '';
+            completeLogin(res.idToken, email, res.refreshToken);
+          } else {
+            handleLogout();
+          }
+        } catch (err) {
+          console.error('Mount silent refresh failed:', err);
+          handleLogout();
+        }
+      }
+      setIsAuthChecking(false);
+    };
+
+    checkSession();
+  }, [cognitoClientId, cognitoRegion]);
+
   // 起動時およびapiUrl変更時にAPIから明細データを同期する
   useEffect(() => {
     const fetchTransactions = async () => {
-      if (!apiUrl) return;
+      if (!apiUrl || isAuthChecking) return;
       setIsRefreshing(true);
       try {
-        const headers: HeadersInit = {};
-        if (token) {
-          headers['Authorization'] = `Bearer ${token}`;
-        }
-        const response = await fetch(`${apiUrl}/api/transactions`, { headers });
-        if (response.status === 401 && cognitoClientId) {
-          handleLogout();
-          return;
-        }
+        const response = await fetchWithAuth(`${apiUrl}/api/transactions`);
         if (response.ok) {
           const data = await response.json();
           // APIから取得したデータをマッピングして格納 (DynamoDBのSKをidとして使用)
@@ -341,7 +445,7 @@ export default function App() {
     };
 
     fetchTransactions();
-  }, [apiUrl, token, cognitoClientId, refreshKey]);
+  }, [apiUrl, token, cognitoClientId, refreshKey, isAuthChecking]);
 
   // SVGグラデーションを定義するために一度だけ描画するコンポーネント用
   const GradientDefs = () => (
@@ -475,18 +579,9 @@ export default function App() {
         setScanStep('レシートを送信中...');
         // 署名付きURL取得
         const nameParam = selectedFile ? selectedFile.name : 'receipt.jpg';
-        const headers: HeadersInit = {};
-        if (token) {
-          headers['Authorization'] = `Bearer ${token}`;
-        }
-        const urlRes = await fetch(
-          `${apiUrl}/api/receipts/presigned-url?filename=${encodeURIComponent(nameParam)}`,
-          { headers }
+        const urlRes = await fetchWithAuth(
+          `${apiUrl}/api/receipts/presigned-url?filename=${encodeURIComponent(nameParam)}`
         );
-        if (urlRes.status === 401 && cognitoClientId) {
-          handleLogout();
-          return;
-        }
         if (!urlRes.ok) throw new Error('署名付きURLの取得に失敗しました');
         const { upload_url, file_key } = await urlRes.json();
 
@@ -503,19 +598,11 @@ export default function App() {
 
         // AIで解析
         setScanStep('AIが品目と金額を読み取り中...');
-        const analyzeHeaders: HeadersInit = { 'Content-Type': 'application/json' };
-        if (token) {
-          analyzeHeaders['Authorization'] = `Bearer ${token}`;
-        }
-        const analyzeRes = await fetch(`${apiUrl}/api/receipts/analyze`, {
+        const analyzeRes = await fetchWithAuth(`${apiUrl}/api/receipts/analyze`, {
           method: 'POST',
-          headers: analyzeHeaders,
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ file_key }),
         });
-        if (analyzeRes.status === 401 && cognitoClientId) {
-          handleLogout();
-          return;
-        }
         if (!analyzeRes.ok) throw new Error('レシート解析に失敗しました');
 
         const result = await analyzeRes.json();
@@ -854,13 +941,9 @@ export default function App() {
     // AWS APIが設定されている場合はサーバーに保存
     if (apiUrl) {
       try {
-        const headers: HeadersInit = { 'Content-Type': 'application/json' };
-        if (token) {
-          headers['Authorization'] = `Bearer ${token}`;
-        }
-        const response = await fetch(`${apiUrl}/api/transactions`, {
+        const response = await fetchWithAuth(`${apiUrl}/api/transactions`, {
           method: 'POST',
-          headers,
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             transaction_date: newTx.transaction_date,
             shop_name: newTx.shop_name,
@@ -872,10 +955,6 @@ export default function App() {
             memo: newTx.memo,
           }),
         });
-        if (response.status === 401 && cognitoClientId) {
-          handleLogout();
-          return;
-        }
         if (!response.ok) throw new Error('サーバーへの保存に失敗しました');
         const resData = await response.json();
         // サーバーが返した本物のDynamoDB SKをセットする
@@ -916,14 +995,10 @@ export default function App() {
 
     if (apiUrl) {
       try {
-        const headers: HeadersInit = { 'Content-Type': 'application/json' };
-        if (token) {
-          headers['Authorization'] = `Bearer ${token}`;
-        }
         const encodedId = encodeURIComponent(selectedTransaction.id);
-        const response = await fetch(`${apiUrl}/api/transactions/${encodedId}`, {
+        const response = await fetchWithAuth(`${apiUrl}/api/transactions/${encodedId}`, {
           method: 'PUT',
-          headers,
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             transaction_date: updatedTx.transaction_date,
             shop_name: updatedTx.shop_name,
@@ -935,10 +1010,6 @@ export default function App() {
             memo: updatedTx.memo,
           }),
         });
-        if (response.status === 401 && cognitoClientId) {
-          handleLogout();
-          return;
-        }
         if (!response.ok) throw new Error('サーバーでの更新に失敗しました');
       } catch (err: any) {
         console.warn('サーバー更新エラー。ローカルのみに保存します:', err);
@@ -958,19 +1029,10 @@ export default function App() {
 
     if (apiUrl) {
       try {
-        const headers: HeadersInit = {};
-        if (token) {
-          headers['Authorization'] = `Bearer ${token}`;
-        }
         // キーに含まれる「#」を安全に転送するためにURLエンコードする
-        const response = await fetch(`${apiUrl}/api/transactions/${encodeURIComponent(id)}`, {
+        const response = await fetchWithAuth(`${apiUrl}/api/transactions/${encodeURIComponent(id)}`, {
           method: 'DELETE',
-          headers,
         });
-        if (response.status === 401 && cognitoClientId) {
-          handleLogout();
-          return;
-        }
       } catch (err) {
         console.warn('サーバーでの削除に失敗しました（ローカルからのみ削除します）');
       }
@@ -985,7 +1047,11 @@ export default function App() {
 
   // 認証ハンドラー
   const handleLogout = () => {
+    const savedRefreshToken = localStorage.getItem('snap_kakeibo_refresh_token');
+
+    // UIとローカルストレージを即座にクリア
     localStorage.removeItem('snap_kakeibo_token');
+    localStorage.removeItem('snap_kakeibo_refresh_token');
     localStorage.removeItem('snap_kakeibo_user_email');
     localStorage.removeItem('snap_kakeibo_user_role');
     setToken('');
@@ -994,6 +1060,16 @@ export default function App() {
     setIsNewPasswordRequired(false);
     setCognitoSession('');
     setAuthError('');
+
+    // バックグラウンドでCognito上のトークンを無効化（失敗してもログアウト自体は継続）
+    if (savedRefreshToken && cognitoClientId && cognitoClientId !== 'local') {
+      cognitoRevokeToken(savedRefreshToken, {
+        clientId: cognitoClientId,
+        region: cognitoRegion,
+      }).catch((err) => {
+        console.warn('Cognito token revocation failed:', err);
+      });
+    }
   };
 
   const handleLoginSubmit = async (e: React.FormEvent) => {
@@ -1040,7 +1116,7 @@ export default function App() {
         setIsNewPasswordRequired(true);
         setCognitoSession(res.session);
       } else if (res.idToken) {
-        completeLogin(res.idToken, loginEmail);
+        completeLogin(res.idToken, loginEmail, res.refreshToken);
       }
     } catch (err: any) {
       setAuthError(err.message || 'ログイン中にエラーが発生しました。');
@@ -1075,7 +1151,7 @@ export default function App() {
       } else if (res.idToken) {
         setIsNewPasswordRequired(false);
         setCognitoSession('');
-        completeLogin(res.idToken, loginEmail);
+        completeLogin(res.idToken, loginEmail, res.refreshToken);
       }
     } catch (err: any) {
       setAuthError(err.message || 'パスワード変更中にエラーが発生しました。');
@@ -1084,9 +1160,15 @@ export default function App() {
     }
   };
 
-  const completeLogin = (idToken: string, email: string) => {
-    localStorage.setItem('snap_kakeibo_token', idToken);
+  const completeLogin = (idToken: string, email: string, refreshToken?: string) => {
+    // 開発用の擬似認証（local）の場合のみ、ID TokenをlocalStorageに永続化し、本番環境ではメモリ上（state）のみで保持します。
+    if (cognitoClientId === 'local') {
+      localStorage.setItem('snap_kakeibo_token', idToken);
+    }
     localStorage.setItem('snap_kakeibo_user_email', email);
+    if (refreshToken) {
+      localStorage.setItem('snap_kakeibo_refresh_token', refreshToken);
+    }
 
     let role = '一般';
     try {
@@ -1116,6 +1198,27 @@ export default function App() {
   };
 
   const isAuthRequired = !!cognitoClientId;
+
+  if (isAuthRequired && isAuthChecking) {
+    return (
+      <div
+        className="app-container"
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          minHeight: '100vh',
+          background: 'var(--bg-dark)',
+          color: 'var(--text-light)',
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <RefreshCw className="animate-spin-fast" size={24} style={{ color: 'var(--accent-purple)' }} />
+          <span style={{ fontSize: '16px', fontWeight: '500' }}>セッションを検証中...</span>
+        </div>
+      </div>
+    );
+  }
 
   if (isAuthRequired && !token) {
     return (
