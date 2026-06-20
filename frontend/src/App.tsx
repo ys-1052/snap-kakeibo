@@ -3214,16 +3214,33 @@ export default function App() {
                   <button
                     onClick={() => setEditData(null)}
                     className="btn-secondary"
-                    style={{ flex: 1 }}
+                    style={{
+                      flex: 1,
+                      borderRadius: '16px',
+                      padding: '16px',
+                      fontSize: '15px',
+                      whiteSpace: 'nowrap',
+                    }}
                   >
                     キャンセル
                   </button>
                   <button
                     onClick={handleSaveTransaction}
                     className="btn-primary"
-                    style={{ flex: 2, position: 'relative' }}
+                    style={{
+                      flex: 2,
+                      borderRadius: '16px',
+                      padding: '16px',
+                      fontSize: '15px',
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '6px',
+                    }}
                   >
-                    <Check size={18} style={{ position: 'absolute', left: '20px' }} />
+                    <Check size={18} />
                     確定
                   </button>
                 </div>
@@ -4271,7 +4288,13 @@ export default function App() {
                       setEditData(null);
                     }}
                     className="btn-secondary"
-                    style={{ flex: 1, borderRadius: '16px', padding: '16px', fontSize: '15px' }}
+                    style={{
+                      flex: 1,
+                      borderRadius: '16px',
+                      padding: '16px',
+                      fontSize: '15px',
+                      whiteSpace: 'nowrap',
+                    }}
                   >
                     閉じる
                   </button>
