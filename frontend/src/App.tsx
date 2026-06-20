@@ -1648,9 +1648,9 @@ export default function App() {
               style={{
                 background: 'transparent',
                 border: 'none',
-                borderRadius: '20px',
-                width: '30px',
-                height: '30px',
+                borderRadius: '50%',
+                width: '44px',
+                height: '44px',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
@@ -1666,7 +1666,7 @@ export default function App() {
               }}
             >
               <RefreshCw
-                size={12}
+                size={18}
                 color="var(--text-muted)"
                 className={isRefreshing ? 'animate-spin-fast' : ''}
               />
@@ -1679,9 +1679,9 @@ export default function App() {
               style={{
                 background: 'rgba(239, 68, 68, 0.08)',
                 border: '1px solid rgba(239, 68, 68, 0.15)',
-                borderRadius: '20px',
-                width: '30px',
-                height: '30px',
+                borderRadius: '50%',
+                width: '44px',
+                height: '44px',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
@@ -1698,7 +1698,7 @@ export default function App() {
                 e.currentTarget.style.borderColor = 'rgba(239, 68, 68, 0.15)';
               }}
             >
-              <LogOut size={12} color="#f87171" />
+              <LogOut size={16} color="#f87171" />
             </button>
           )}
 
@@ -2530,8 +2530,8 @@ export default function App() {
                                     background: 'rgba(239, 68, 68, 0.08)',
                                     border: '1px solid rgba(239, 68, 68, 0.15)',
                                     borderRadius: '8px',
-                                    width: '32px',
-                                    height: '28px',
+                                    width: '40px',
+                                    height: '36px',
                                     display: 'flex',
                                     alignItems: 'center',
                                     justifyContent: 'center',
@@ -2552,7 +2552,7 @@ export default function App() {
                                   }}
                                   title="この品目を削除"
                                 >
-                                  <Trash2 size={13} />
+                                  <Trash2 size={16} />
                                 </button>
                                 {isExpanded ? (
                                   <ChevronUp size={16} color="var(--text-secondary)" />
@@ -3048,8 +3048,8 @@ export default function App() {
                             background: 'rgba(239, 68, 68, 0.1)',
                             border: '1px solid rgba(239, 68, 68, 0.2)',
                             borderRadius: '8px',
-                            width: '32px',
-                            height: '32px',
+                            width: '40px',
+                            height: '40px',
                             display: 'flex',
                             alignItems: 'center',
                             justifyContent: 'center',
@@ -3069,7 +3069,7 @@ export default function App() {
                           }}
                           title="この履歴を削除"
                         >
-                          <Trash2 size={14} />
+                          <Trash2 size={18} />
                         </button>
                       </div>
                     </div>
@@ -3310,8 +3310,8 @@ export default function App() {
                       border: '1px solid rgba(255, 255, 255, 0.08)',
                       borderRadius: '12px',
                       color: '#fff',
-                      padding: '10px 14px',
-                      fontSize: '14px',
+                      padding: '12px 16px',
+                      fontSize: '16px',
                       outline: 'none',
                       width: '100%',
                     }}
@@ -3335,8 +3335,8 @@ export default function App() {
                         border: '1px solid rgba(255, 255, 255, 0.08)',
                         borderRadius: '12px',
                         color: '#fff',
-                        padding: '10px 14px',
-                        fontSize: '14px',
+                        padding: '12px 16px',
+                        fontSize: '16px',
                         outline: 'none',
                         width: '100%',
                       }}
@@ -3356,10 +3356,10 @@ export default function App() {
                         border: '1px solid rgba(255, 255, 255, 0.08)',
                         borderRadius: '12px',
                         color: '#fff',
-                        padding: '10px 14px',
-                        fontSize: '14px',
+                        padding: '12px 16px',
+                        fontSize: '16px',
                         outline: 'none',
-                        height: '42px',
+                        height: '48px',
                         cursor: 'pointer',
                         width: '100%',
                       }}
@@ -3406,8 +3406,8 @@ export default function App() {
                         background: 'rgba(139, 92, 246, 0.1)',
                         border: '1px solid rgba(139, 92, 246, 0.2)',
                         borderRadius: '8px',
-                        padding: '2px 8px',
-                        fontSize: '11px',
+                        padding: '6px 12px',
+                        fontSize: '13px',
                         color: 'var(--accent-purple)',
                         cursor: 'pointer',
                       }}
@@ -3454,9 +3454,9 @@ export default function App() {
                                 border: 'none',
                                 borderBottom: '1px solid rgba(255,255,255,0.1)',
                                 color: '#fff',
-                                fontSize: '15px',
+                                fontSize: '16px',
                                 outline: 'none',
-                                padding: '4px 0',
+                                padding: '8px 0',
                               }}
                             />
                             <button
@@ -3465,8 +3465,8 @@ export default function App() {
                                 background: 'rgba(239, 68, 68, 0.08)',
                                 border: 'none',
                                 borderRadius: '8px',
-                                width: '28px',
-                                height: '28px',
+                                width: '36px',
+                                height: '36px',
                                 display: 'flex',
                                 alignItems: 'center',
                                 justifyContent: 'center',
@@ -3474,7 +3474,7 @@ export default function App() {
                                 cursor: 'pointer',
                               }}
                             >
-                              <Trash2 size={14} />
+                              <Trash2 size={16} />
                             </button>
                           </div>
                           <div
@@ -3494,15 +3494,15 @@ export default function App() {
                                 value={item.price === 0 ? '' : item.price}
                                 onChange={e => handleItemChange(index, 'price', e.target.value)}
                                 style={{
-                                  width: '75px',
+                                  width: '85px',
                                   background: 'transparent',
                                   border: 'none',
                                   borderBottom: '1px solid rgba(255,255,255,0.1)',
                                   color: '#fff',
-                                  fontSize: '14px',
+                                  fontSize: '16px',
                                   outline: 'none',
                                   textAlign: 'right',
-                                  padding: '2px 0',
+                                  padding: '6px 0',
                                 }}
                               />
                             </div>
@@ -3513,20 +3513,20 @@ export default function App() {
                                   background: 'rgba(255,255,255,0.05)',
                                   border: 'none',
                                   borderRadius: '6px',
-                                  width: '26px',
-                                  height: '26px',
+                                  width: '34px',
+                                  height: '34px',
                                   color: '#fff',
                                   display: 'flex',
                                   alignItems: 'center',
                                   justifyContent: 'center',
-                                  fontSize: '14px',
+                                  fontSize: '16px',
                                   cursor: 'pointer',
                                 }}
                               >
                                 -
                               </button>
                               <span
-                                style={{ fontSize: '13px', minWidth: '18px', textAlign: 'center' }}
+                                style={{ fontSize: '15px', minWidth: '24px', textAlign: 'center' }}
                                 className="numeric"
                               >
                                 {item.qty}
@@ -3537,13 +3537,13 @@ export default function App() {
                                   background: 'rgba(255,255,255,0.05)',
                                   border: 'none',
                                   borderRadius: '6px',
-                                  width: '26px',
-                                  height: '26px',
+                                  width: '34px',
+                                  height: '34px',
                                   color: '#fff',
                                   display: 'flex',
                                   alignItems: 'center',
                                   justifyContent: 'center',
-                                  fontSize: '14px',
+                                  fontSize: '16px',
                                   cursor: 'pointer',
                                 }}
                               >
@@ -3562,9 +3562,9 @@ export default function App() {
                                 border: 'none',
                                 borderRadius: '6px',
                                 color: '#fff',
-                                fontSize: '12px',
-                                padding: '4px 6px',
-                                height: '26px',
+                                fontSize: '14px',
+                                padding: '6px 8px',
+                                height: '34px',
                                 cursor: 'pointer',
                                 outline: 'none',
                               }}
@@ -3618,11 +3618,11 @@ export default function App() {
                       border: '1px solid rgba(255, 255, 255, 0.08)',
                       borderRadius: '12px',
                       color: '#fff',
-                      padding: '10px 14px',
-                      fontSize: '13px',
+                      padding: '12px 16px',
+                      fontSize: '16px',
                       outline: 'none',
                       resize: 'none',
-                      height: '50px',
+                      height: '65px',
                       width: '100%',
                     }}
                   />
@@ -3655,8 +3655,8 @@ export default function App() {
                     style={{
                       flex: 2,
                       borderRadius: '16px',
-                      padding: '12px',
-                      fontSize: '13px',
+                      padding: '16px',
+                      fontSize: '15px',
                       fontWeight: 600,
                       cursor: 'pointer',
                       display: 'flex',
@@ -3665,7 +3665,7 @@ export default function App() {
                       gap: '6px',
                     }}
                   >
-                    <Check size={16} />
+                    <Check size={18} />
                     保存する
                   </button>
                   <button
@@ -3678,8 +3678,8 @@ export default function App() {
                       border: '1px solid rgba(239, 68, 68, 0.25)',
                       borderRadius: '16px',
                       color: '#f87171',
-                      padding: '12px',
-                      fontSize: '13px',
+                      padding: '16px',
+                      fontSize: '15px',
                       fontWeight: 600,
                       cursor: 'pointer',
                       display: 'flex',
@@ -3697,7 +3697,7 @@ export default function App() {
                       e.currentTarget.style.borderColor = 'rgba(239, 68, 68, 0.25)';
                     }}
                   >
-                    <Trash2 size={14} />
+                    <Trash2 size={18} />
                     削除
                   </button>
                   <button
@@ -3706,7 +3706,7 @@ export default function App() {
                       setEditData(null);
                     }}
                     className="btn-secondary"
-                    style={{ flex: 1, borderRadius: '16px', padding: '12px', fontSize: '13px' }}
+                    style={{ flex: 1, borderRadius: '16px', padding: '16px', fontSize: '15px' }}
                   >
                     閉じる
                   </button>
