@@ -3313,6 +3313,7 @@ export default function App() {
                       padding: '10px 14px',
                       fontSize: '14px',
                       outline: 'none',
+                      width: '100%',
                     }}
                   />
                 </div>
@@ -3360,6 +3361,7 @@ export default function App() {
                         outline: 'none',
                         height: '42px',
                         cursor: 'pointer',
+                        width: '100%',
                       }}
                     >
                       <option value="食費" style={{ background: '#131520' }}>
@@ -3613,6 +3615,7 @@ export default function App() {
                       outline: 'none',
                       resize: 'none',
                       height: '50px',
+                      width: '100%',
                     }}
                   />
                 </div>
