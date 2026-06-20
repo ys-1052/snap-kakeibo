@@ -38,13 +38,14 @@ provider:
           Resource:
             - arn:aws:dynamodb:${self:provider.region}:*:table/${self:provider.environment.DYNAMODB_TABLE}
             - arn:aws:dynamodb:${self:provider.region}:*:table/${self:provider.environment.DYNAMODB_TABLE}/index/*
-        # Amazon Bedrock (NVIDIA Nemotron Nano 12B) の呼び出し権限
+        # Amazon Bedrock (Claude Haiku 4.5 Global Inference Profile) の呼び出し権限
         - Effect: Allow
           Action:
             - bedrock:InvokeModel
             - bedrock:Converse
           Resource:
-            - arn:aws:bedrock:${self:provider.region}::foundation-model/nvidia.nemotron-nano-12b-v2
+            - arn:aws:bedrock:${self:provider.region}:${aws:accountId}:inference-profile/global.anthropic.claude-haiku-4-5-20251001-v1:0
+            - arn:aws:bedrock:*::foundation-model/anthropic.claude-haiku-4-5-20251001-v1:0
 
 package:
   patterns:
