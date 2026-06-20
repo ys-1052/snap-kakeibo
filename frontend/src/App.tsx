@@ -263,10 +263,12 @@ export default function App() {
 
   // ログインフォームステート
   const [rememberEmail, setRememberEmail] = useState(() => {
-    return localStorage.getItem('snap_kakeibo_remember_email') === 'true';
+    const saved = localStorage.getItem('snap_kakeibo_remember_email');
+    return saved === null ? true : saved === 'true';
   });
   const [loginEmail, setLoginEmail] = useState(() => {
-    const remember = localStorage.getItem('snap_kakeibo_remember_email') === 'true';
+    const saved = localStorage.getItem('snap_kakeibo_remember_email');
+    const remember = saved === null ? true : saved === 'true';
     return remember ? localStorage.getItem('snap_kakeibo_saved_email') || '' : '';
   });
   const [loginPassword, setLoginPassword] = useState('');
