@@ -130,8 +130,8 @@ resources:
             RequireUppercase: false
         VerificationMessageTemplate:
           DefaultEmailOption: CONFIRM_WITH_CODE
-          EmailMessage: "SnapKakeiboの認証コードは {####} です。"
-          EmailSubject: "[SnapKakeibo] 認証コードのご案内"
+          EmailMessage: "SnapKakeiboの確認コードは {####} です。"
+          EmailSubject: "[SnapKakeibo] 確認コードのご案内"
         LambdaConfig:
           PostAuthentication: !GetAtt AuthTriggerLambdaFunction.Arn
           PostConfirmation: !GetAtt AuthTriggerLambdaFunction.Arn
