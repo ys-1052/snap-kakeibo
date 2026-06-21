@@ -129,7 +129,9 @@ def main():
     print("==================================================")
     print(f"🔍 ターゲットステージ: {args.stage}")
     print(f"🔍 対象ユーザー: {args.email}")
-    print(f"🔍 設定グループ (プラン): {args.group if args.group else '未指定（対話モード）'}")
+    print(
+        f"🔍 設定グループ (プラン): {args.group if args.group else '未指定（対話モード）'}"
+    )
     print("--------------------------------------------------")
 
     # 1. User Pool ID 取得
@@ -162,7 +164,9 @@ def main():
         print("3. Premium (プレミアム・無制限)")
         print("4. Admins  (管理者・無制限)")
         try:
-            choice = input("選択してください (1-4) [キャンセルする場合は Enter]: ").strip()
+            choice = input(
+                "選択してください (1-4) [キャンセルする場合は Enter]: "
+            ).strip()
             if choice == "1":
                 target_group = "Free"
             elif choice == "2":
