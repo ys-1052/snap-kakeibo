@@ -859,12 +859,12 @@ def list_transactions(current_user: dict = Depends(verify_approved_user)):  # no
     try:
         user_id = current_user["sub"]
         table = dynamodb.Table(TABLE_NAME)
-        # ユーザーに紐づく取引履歴データ（SKがTRANSACTION#で始まるもの）のみをDynamoDBからQuery
+        # ユーザーに紐づく取引履歴データ（SKがTX#で始まるもの）のみをDynamoDBからQuery
         response = table.query(
             KeyConditionExpression="PK = :pk AND begins_with(SK, :sk_prefix)",
             ExpressionAttributeValues={
                 ":pk": f"USER#{user_id}",
-                ":sk_prefix": "TRANSACTION#",
+                ":sk_prefix": "TX#",
             },
             ScanIndexForward=False,  # 新しい日付順に取得
         )

@@ -179,9 +179,7 @@ def main():
         )
         sys.exit(1)
 
-    transaction_count = sum(
-        1 for item in items if item["SK"].startswith("TRANSACTION#")
-    )
+    transaction_count = sum(1 for item in items if item["SK"].startswith("TX#"))
     stats_count = sum(1 for item in items if item["SK"].startswith("STATS#"))
 
     print("📋 削除対象データの内訳:")
