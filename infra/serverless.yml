@@ -66,6 +66,7 @@ functions:
     memorySize: 128
     environment:
       DISCORD_WEBHOOK_URL: ${ssm:/snap-kakeibo/prod/discord-webhook-url, ''}
+      DISCORD_SIGNUP_WEBHOOK_URL: ${ssm:/snap-kakeibo/prod/discord-signup-webhook-url, ''}
 
 
 
@@ -109,7 +110,7 @@ resources:
             KeyType: RANGE
         BillingMode: PAY_PER_REQUEST # オンデマンド (完全従量制・無料枠あり)
 
-    # 3. 画像解析・認証用のCognitoユーザープール（管理者招待制・自己登録不可）
+    # 3. 画像解析・認証用のCognitoユーザープール（自己登録申請および管理者承認制）
     CognitoUserPool:
       Type: AWS::Cognito::UserPool
       Properties:
@@ -119,7 +120,7 @@ resources:
         AutoVerifiedAttributes:
           - email
         AdminCreateUserConfig:
-          AllowAdminCreateUserOnly: true # 管理者による招待制（セルフサインアップ不可）
+          AllowAdminCreateUserOnly: false # ユーザーの自己サインアップ（利用申請）を許可
         Policies:
           PasswordPolicy:
             MinimumLength: 8
@@ -129,10 +130,11 @@ resources:
             RequireUppercase: false
         VerificationMessageTemplate:
           DefaultEmailOption: CONFIRM_WITH_CODE
-          EmailMessage: "SnapKakeiboへの招待です。仮パスワードは {####} です。ログイン後に変更してください。"
-          EmailSubject: "[SnapKakeibo] アカウント作成および招待コードのご案内"
+          EmailMessage: "SnapKakeiboの認証コードは {####} です。"
+          EmailSubject: "[SnapKakeibo] 認証コードのご案内"
         LambdaConfig:
           PostAuthentication: !GetAtt AuthTriggerLambdaFunction.Arn
+          PostConfirmation: !GetAtt AuthTriggerLambdaFunction.Arn
 
     # 4. フロントエンドから直接叩くためのユーザープールクライアント
     CognitoUserPoolClient:
@@ -156,13 +158,29 @@ resources:
         UserPoolId: !Ref CognitoUserPool
         Description: System administrator group with full rights
 
-    # 6. 一般ユーザー権限グループ (Users)
-    CognitoUserPoolGroupUsers:
+    # 6. 無料ユーザー権限グループ (Free)
+    CognitoUserPoolGroupFree:
       Type: AWS::Cognito::UserPoolGroup
       Properties:
-        GroupName: Users
+        GroupName: Free
         UserPoolId: !Ref CognitoUserPool
-        Description: Standard user group
+        Description: Free tier user group
+
+    # 6.2. ライトユーザー権限グループ (Lite)
+    CognitoUserPoolGroupLite:
+      Type: AWS::Cognito::UserPoolGroup
+      Properties:
+        GroupName: Lite
+        UserPoolId: !Ref CognitoUserPool
+        Description: Lite tier user group with 30 monthly AI scans
+
+    # 6.5. 有料ユーザー権限グループ (Premium)
+    CognitoUserPoolGroupPremium:
+      Type: AWS::Cognito::UserPoolGroup
+      Properties:
+        GroupName: Premium
+        UserPoolId: !Ref CognitoUserPool
+        Description: Premium user group with unlimited AI scans
 
     # CognitoからAuthTrigger Lambdaを呼び出す権限
     CognitoInvocationPermission:

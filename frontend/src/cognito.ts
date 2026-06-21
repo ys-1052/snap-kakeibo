@@ -276,3 +276,47 @@ export async function cognitoDeleteWebAuthnCredential(
     CredentialId: credentialId,
   });
 }
+
+/**
+ * 新規サインアップ要求 (SignUp)
+ */
+export async function cognitoSignUp(
+  email: string,
+  password: string,
+  config: CognitoConfig
+): Promise<{ userConfirmed: boolean; userSub: string; error?: string }> {
+  try {
+    const data = await cognitoRequest(config.region, 'SignUp', {
+      ClientId: config.clientId,
+      Username: email,
+      Password: password,
+      UserAttributes: [{ Name: 'email', Value: email }],
+    });
+    return {
+      userConfirmed: data.UserConfirmed,
+      userSub: data.UserSub,
+    };
+  } catch (err: any) {
+    return { userConfirmed: false, userSub: '', error: err.message };
+  }
+}
+
+/**
+ * サインアップのコード確認 (ConfirmSignUp)
+ */
+export async function cognitoConfirmSignUp(
+  email: string,
+  code: string,
+  config: CognitoConfig
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    await cognitoRequest(config.region, 'ConfirmSignUp', {
+      ClientId: config.clientId,
+      Username: email,
+      ConfirmationCode: code,
+    });
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, error: err.message };
+  }
+}

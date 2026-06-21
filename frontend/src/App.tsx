@@ -46,6 +46,8 @@ import {
   base64UrlToArrayBuffer,
   cognitoListWebAuthnCredentials,
   cognitoDeleteWebAuthnCredential,
+  cognitoSignUp,
+  cognitoConfirmSignUp,
 } from './cognito';
 import { CONFIG } from './config';
 
@@ -257,8 +259,17 @@ export default function App() {
     () => localStorage.getItem('snap_kakeibo_user_email') || ''
   );
   const [userRole, setUserRole] = useState(
-    () => localStorage.getItem('snap_kakeibo_user_role') || '一般'
+    () => localStorage.getItem('snap_kakeibo_user_role') || 'Pending'
   );
+
+  // 承認状態およびスキャン回数制限情報
+  const [isApproved, setIsApproved] = useState(() => {
+    const role = localStorage.getItem('snap_kakeibo_user_role') || 'Pending';
+    return role !== 'Pending';
+  });
+  const [scanCount, setScanCount] = useState(0);
+  const [scanLimit, setScanLimit] = useState(1);
+  const [hasFetchedProfile, setHasFetchedProfile] = useState(false);
 
   // マウント時のセッション確認状態
   const [isAuthChecking, setIsAuthChecking] = useState(() => {
@@ -282,7 +293,15 @@ export default function App() {
   const [isNewPasswordRequired, setIsNewPasswordRequired] = useState(false);
   const [cognitoSession, setCognitoSession] = useState('');
   const [authError, setAuthError] = useState('');
+  const [authSuccessMessage, setAuthSuccessMessage] = useState('');
   const [authLoading, setAuthLoading] = useState(false);
+  const [isCheckingStatus, setIsCheckingStatus] = useState(false);
+
+  // 自己サインアップ（利用申請）ステート
+  const [authState, setAuthState] = useState<'login' | 'signup' | 'confirm'>('login');
+  const [signUpEmail, setSignUpEmail] = useState('');
+  const [signUpPassword, setSignUpPassword] = useState('');
+  const [confirmCode, setConfirmCode] = useState('');
 
   // スキャンステータス
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -468,6 +487,30 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cognitoClientId, cognitoRegion]);
 
+  // 起動時および認証状況変更時にユーザープロファイルを同期する
+  useEffect(() => {
+    const fetchUserProfile = async () => {
+      if (!token || !apiUrl || isAuthChecking) return;
+      try {
+        const response = await fetchWithAuth(`${apiUrl}/api/users/me`);
+        if (response.ok) {
+          const profile = await response.json();
+          setIsApproved(profile.is_approved);
+          setScanCount(profile.scan_count || 0);
+          setScanLimit(profile.scan_limit || 1);
+        } else if (response.status === 403) {
+          setIsApproved(false);
+        }
+      } catch (err) {
+        console.error('Failed to fetch user profile:', err);
+      } finally {
+        setHasFetchedProfile(true);
+      }
+    };
+    fetchUserProfile();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token, apiUrl, isAuthChecking, refreshKey]);
+
   // 起動時およびapiUrl変更時にAPIから明細データを同期する
   useEffect(() => {
     const fetchTransactions = async () => {
@@ -621,6 +664,18 @@ export default function App() {
   const triggerScan = async () => {
     if (!previewUrl) return;
 
+    // ユーザー情報取得完了を待つ (管理者/Premium以外)
+    if (!hasFetchedProfile && !isLocal) {
+      alert('ユーザー情報を取得中です。少々お待ちください。');
+      return;
+    }
+
+    // 月間スキャン制限の即時チェック (管理者/Premium以外)
+    if (scanLimit < 999999 && scanCount >= scanLimit) {
+      alert('今月のAIスキャン上限に達しました。プランのアップグレードをご検討ください。');
+      return;
+    }
+
     setIsScanning(true);
     setScanStep('レシートを送信中...');
 
@@ -639,6 +694,15 @@ export default function App() {
         const urlRes = await fetchWithAuth(
           `${apiUrl}/api/receipts/presigned-url?filename=${encodeURIComponent(nameParam)}`
         );
+        if (urlRes.status === 403) {
+          const errData = await urlRes.json();
+          alert(
+            errData.detail ||
+              '今月のAIスキャン上限に達しました。プランのアップグレードをご検討ください。'
+          );
+          setIsScanning(false);
+          return;
+        }
         if (!urlRes.ok) throw new Error('署名付きURLの取得に失敗しました');
         const { upload_url, file_key } = await urlRes.json();
 
@@ -660,6 +724,15 @@ export default function App() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ file_key }),
         });
+        if (analyzeRes.status === 403) {
+          const errData = await analyzeRes.json();
+          alert(
+            errData.detail ||
+              '今月のAIスキャン上限に達しました。プランのアップグレードをご検討ください。'
+          );
+          setIsScanning(false);
+          return;
+        }
         if (!analyzeRes.ok) throw new Error('レシート解析に失敗しました');
 
         const result = await analyzeRes.json();
@@ -667,6 +740,9 @@ export default function App() {
           ...result,
           receipt_s3_key: file_key,
         });
+        setScanCount(prev => prev + 1); // クライアント側のカウントを即座にインクリメント
+        // スキャンカウントやトランザクション一覧を最新化するためリフレッシュを実行
+        setRefreshKey(prev => prev + 1);
       } catch (err: any) {
         alert(`エラーが発生したため、デモモードのAI解析に切り替えます: ${err.message}`);
         runDemoScan();
@@ -1120,10 +1196,11 @@ export default function App() {
     setToken('');
     setAccessToken('');
     setUserEmail('');
-    setUserRole('一般');
+    setUserRole('Pending');
     setIsNewPasswordRequired(false);
     setCognitoSession('');
     setAuthError('');
+    setHasFetchedProfile(false);
 
     // バックグラウンドでCognito上のトークンを無効化（失敗してもログアウト自体は継続）
     if (savedRefreshToken && cognitoClientId && cognitoClientId !== 'local') {
@@ -1134,6 +1211,14 @@ export default function App() {
         console.warn('Cognito token revocation failed:', err);
       });
     }
+  };
+
+  const handleCheckApprovalStatus = () => {
+    setIsCheckingStatus(true);
+    setRefreshKey(prev => prev + 1);
+    setTimeout(() => {
+      setIsCheckingStatus(false);
+    }, 1000);
   };
 
   const handleLoginSubmit = async (e: React.FormEvent) => {
@@ -1174,7 +1259,7 @@ export default function App() {
         ) {
           setAuthError('メールアドレスまたはパスワードが正しくありません。');
         } else {
-          setAuthError(res.error);
+          setAuthError(translateCognitoError(res.error));
         }
       } else if (res.challengeName === 'NEW_PASSWORD_REQUIRED' && res.session) {
         setIsNewPasswordRequired(true);
@@ -1183,7 +1268,7 @@ export default function App() {
         completeLogin(res.idToken, loginEmail, res.refreshToken, res.accessToken);
       }
     } catch (err: any) {
-      setAuthError(err.message || 'ログイン中にエラーが発生しました。');
+      setAuthError(translateCognitoError(err.message || 'ログイン中にエラーが発生しました。'));
     } finally {
       setAuthLoading(false);
     }
@@ -1211,14 +1296,136 @@ export default function App() {
       );
 
       if (res.error) {
-        setAuthError(res.error);
+        setAuthError(translateCognitoError(res.error));
       } else if (res.idToken) {
         setIsNewPasswordRequired(false);
         setCognitoSession('');
         completeLogin(res.idToken, loginEmail, res.refreshToken, res.accessToken);
       }
     } catch (err: any) {
-      setAuthError(err.message || 'パスワード変更中にエラーが発生しました。');
+      setAuthError(
+        translateCognitoError(err.message || 'パスワード変更中にエラーが発生しました。')
+      );
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  const handleSignUpSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!signUpEmail || !signUpPassword) {
+      setAuthError('メールアドレスとパスワードを入力してください。');
+      return;
+    }
+    if (signUpPassword.length < 8) {
+      setAuthError('パスワードは8文字以上である必要があります。');
+      return;
+    }
+
+    setAuthLoading(true);
+    setAuthError('');
+    setAuthSuccessMessage('');
+
+    // ローカル擬似認証モードの場合のバイパス処理（メール送信はモック）
+    if (cognitoClientId === 'local') {
+      setTimeout(() => {
+        setAuthState('confirm');
+        setAuthLoading(false);
+      }, 600);
+      return;
+    }
+
+    try {
+      const res = await cognitoSignUp(signUpEmail, signUpPassword, {
+        clientId: cognitoClientId,
+        region: cognitoRegion,
+      });
+
+      if (res.error) {
+        setAuthError(translateCognitoError(res.error));
+      } else {
+        // 確認コード入力画面へ遷移
+        setAuthState('confirm');
+      }
+    } catch (err: any) {
+      setAuthError(translateCognitoError(err.message || '登録申請中にエラーが発生しました。'));
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  const handleConfirmSignUpSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!confirmCode) {
+      setAuthError('確認コードを入力してください。');
+      return;
+    }
+
+    setAuthLoading(true);
+    setAuthError('');
+
+    // ローカル擬似認証モードの場合のバイパス処理（検証成功）
+    if (cognitoClientId === 'local') {
+      setTimeout(() => {
+        completeLogin(`local-token-${signUpEmail}`, signUpEmail);
+        setSignUpEmail('');
+        setSignUpPassword('');
+        setConfirmCode('');
+        setAuthLoading(false);
+      }, 600);
+      return;
+    }
+
+    try {
+      const res = await cognitoConfirmSignUp(signUpEmail, confirmCode, {
+        clientId: cognitoClientId,
+        region: cognitoRegion,
+      });
+
+      if (res.error) {
+        setAuthError(translateCognitoError(res.error));
+      } else {
+        // 自動ログインを試みる
+        try {
+          const signInRes = await cognitoSignIn(signUpEmail, signUpPassword, {
+            clientId: cognitoClientId,
+            region: cognitoRegion,
+          });
+          if (signInRes.error) {
+            // 自動ログインに失敗した場合はログイン画面に戻して手動ログインを促す
+            setAuthState('login');
+            setLoginEmail(signUpEmail);
+            setAuthError(
+              `登録は完了しましたが、自動ログインに失敗しました: ${translateCognitoError(
+                signInRes.error
+              )}。再度ログインをお試しください。`
+            );
+          } else if (signInRes.idToken) {
+            completeLogin(
+              signInRes.idToken,
+              signUpEmail,
+              signInRes.refreshToken,
+              signInRes.accessToken
+            );
+          } else {
+            setAuthState('login');
+            setLoginEmail(signUpEmail);
+          }
+        } catch (loginErr: any) {
+          setAuthState('login');
+          setLoginEmail(signUpEmail);
+          setAuthError(
+            `登録は完了しましたが、自動ログイン中にエラーが発生しました。再度ログインをお試しください。`
+          );
+        }
+        setSignUpEmail('');
+        setSignUpPassword('');
+        setConfirmCode('');
+      }
+    } catch (err: any) {
+      setAuthError(
+        translateCognitoError(err.message || '確認コードの検証中にエラーが発生しました。')
+      );
     } finally {
       setAuthLoading(false);
     }
@@ -1500,17 +1707,74 @@ export default function App() {
         setAuthError('パスキー認証がキャンセルされました。');
       } else {
         const msg = err.message || '';
-        if (msg.includes('user not found') || msg.includes('UserNotFoundException')) {
-          setAuthError('ユーザーが見つかりません。入力したメールアドレスをご確認ください。');
-        } else if (msg.includes('not enabled')) {
-          setAuthError('このユーザープールではパスキー（WebAuthn）認証が有効化されていません。');
-        } else {
-          setAuthError(msg || 'パスキーログイン中にエラーが発生しました。');
-        }
+        setAuthError(translateCognitoError(msg));
       }
     } finally {
       setAuthLoading(false);
     }
+  };
+
+  /**
+   * Cognitoのエラーメッセージを分かりやすい日本語に翻訳します。
+   */
+  const translateCognitoError = (errorMsg: string): string => {
+    if (!errorMsg) return 'エラーが発生しました。';
+    const lowerMsg = errorMsg.toLowerCase();
+
+    if (
+      lowerMsg.includes('usernotfoundexception') ||
+      lowerMsg.includes('user not found') ||
+      lowerMsg.includes('user does not exist')
+    ) {
+      return 'ユーザーが見つかりません。メールアドレスをご確認ください。';
+    }
+    if (
+      lowerMsg.includes('usernameexistsexception') ||
+      lowerMsg.includes('user already exists') ||
+      lowerMsg.includes('already exists')
+    ) {
+      return 'このメールアドレスは既に登録されています。';
+    }
+    if (
+      lowerMsg.includes('notauthorizedexception') ||
+      lowerMsg.includes('incorrect username or password')
+    ) {
+      return 'メールアドレスまたはパスワードが正しくありません。';
+    }
+    if (
+      lowerMsg.includes('usernotconfirmedexception') ||
+      lowerMsg.includes('user is not confirmed')
+    ) {
+      return 'アカウントの確認が完了していません。メールに届いた確認コードを入力してください。';
+    }
+    if (
+      lowerMsg.includes('codemismatchexception') ||
+      lowerMsg.includes('invalid verification code')
+    ) {
+      return '確認コードが正しくありません。';
+    }
+    if (lowerMsg.includes('expiredcodeexception') || lowerMsg.includes('code expired')) {
+      return '確認コードの有効期限が切れています。再度申請してください。';
+    }
+    if (
+      lowerMsg.includes('invalidpasswordexception') ||
+      lowerMsg.includes('password conforms') ||
+      lowerMsg.includes('password must')
+    ) {
+      return 'パスワードの強度が不足しています。8文字以上で、数字を1文字以上含めてください。';
+    }
+    if (
+      lowerMsg.includes('limitexceededexception') ||
+      lowerMsg.includes('too many attempts') ||
+      lowerMsg.includes('limit exceeded')
+    ) {
+      return 'リクエスト制限回数を超えました。しばらく時間をおいてから再度お試しください。';
+    }
+    if (lowerMsg.includes('invalidparameterexception') || lowerMsg.includes('email format')) {
+      return '入力パラメータに誤りがあるか、メールアドレスの形式が正しくありません。';
+    }
+
+    return errorMsg;
   };
 
   const completeLogin = (
@@ -1536,19 +1800,38 @@ export default function App() {
       localStorage.removeItem('snap_kakeibo_saved_email');
     }
 
-    let role = '一般';
-    try {
-      const payloadBase64 = idToken.split('.')[1];
-      const decodedPayload = JSON.parse(atob(payloadBase64));
-      const groups = decodedPayload['cognito:groups'] || [];
-      if (groups.includes('Admins')) {
-        role = '管理者';
+    let role = 'Pending';
+    if (cognitoClientId === 'local' || idToken.startsWith('local-token-')) {
+      if (email.includes('admin')) {
+        role = 'Admin';
+      } else if (email.includes('premium')) {
+        role = 'Premium';
+      } else if (email.includes('lite')) {
+        role = 'Lite';
+      } else if (email.includes('free') || email.includes('user')) {
+        role = 'Free';
       }
-    } catch (err) {
-      console.warn('トークンの解析に失敗しました:', err);
+    } else {
+      try {
+        const payloadBase64 = idToken.split('.')[1];
+        const decodedPayload = JSON.parse(atob(payloadBase64));
+        const groups = decodedPayload['cognito:groups'] || [];
+        if (groups.includes('Admins')) {
+          role = 'Admin';
+        } else if (groups.includes('Premium')) {
+          role = 'Premium';
+        } else if (groups.includes('Lite')) {
+          role = 'Lite';
+        } else if (groups.includes('Free')) {
+          role = 'Free';
+        }
+      } catch (err) {
+        console.warn('トークンの解析に失敗しました:', err);
+      }
     }
 
     localStorage.setItem('snap_kakeibo_user_role', role);
+    setIsApproved(role !== 'Pending');
     setToken(idToken);
     setAccessToken(accessTok || '');
     setUserEmail(email);
@@ -1673,8 +1956,34 @@ export default function App() {
             </span>
           </h2>
           <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '30px' }}>
-            招待者用のログイン画面です。管理者から付与されたアカウント情報でログインしてください。
+            {authState === 'login' &&
+              '招待者・登録申請者用のログイン画面です。ご自身のアカウント情報でログインしてください。'}
+            {authState === 'signup' &&
+              '利用申請用の新規アカウント登録画面です。登録完了後、管理者による承認が完了するまでログインをお待ちください。'}
+            {authState === 'confirm' &&
+              'メールアドレスの確認を行います。送信された確認コードを入力してください。'}
           </p>
+
+          {authSuccessMessage && (
+            <div
+              style={{
+                background: 'rgba(16, 185, 129, 0.1)',
+                border: '1px solid rgba(16, 185, 129, 0.2)',
+                borderRadius: '12px',
+                padding: '12px',
+                fontSize: '13px',
+                color: '#34d399',
+                textAlign: 'left',
+                display: 'flex',
+                alignItems: 'flex-start',
+                gap: '8px',
+                marginBottom: '20px',
+              }}
+            >
+              <Check size={16} style={{ flexShrink: 0, marginTop: '2px' }} />
+              <span>{authSuccessMessage}</span>
+            </div>
+          )}
 
           {authError && (
             <div
@@ -1698,150 +2007,409 @@ export default function App() {
           )}
 
           {!isNewPasswordRequired ? (
-            // 通常ログインフォーム
-            <form
-              onSubmit={handleLoginSubmit}
-              style={{ display: 'flex', flexDirection: 'column', gap: '18px', textAlign: 'left' }}
-            >
-              <div className="form-group" style={{ margin: 0 }}>
-                <label
+            <>
+              {authState === 'login' && (
+                // 通常ログインフォーム
+                <form
+                  onSubmit={handleLoginSubmit}
                   style={{
-                    fontSize: '12px',
-                    fontWeight: 600,
-                    color: 'var(--text-secondary)',
-                    marginBottom: '6px',
-                    display: 'block',
-                  }}
-                >
-                  メールアドレス
-                </label>
-                <div style={{ position: 'relative' }}>
-                  <input
-                    type="email"
-                    className="form-control"
-                    placeholder="your-email@example.com"
-                    style={{ paddingLeft: '40px' }}
-                    value={loginEmail}
-                    onChange={e => setLoginEmail(e.target.value)}
-                    disabled={authLoading}
-                  />
-                  <Mail
-                    size={16}
-                    color="var(--text-muted)"
-                    style={{ position: 'absolute', left: '14px', top: '15px' }}
-                  />
-                </div>
-              </div>
-
-              <div className="form-group" style={{ margin: 0 }}>
-                <label
-                  style={{
-                    fontSize: '12px',
-                    fontWeight: 600,
-                    color: 'var(--text-secondary)',
-                    marginBottom: '6px',
-                    display: 'block',
-                  }}
-                >
-                  パスワード
-                </label>
-                <div style={{ position: 'relative' }}>
-                  <input
-                    type="password"
-                    className="form-control"
-                    placeholder="パスワードを入力"
-                    style={{ paddingLeft: '40px' }}
-                    value={loginPassword}
-                    onChange={e => setLoginPassword(e.target.value)}
-                    disabled={authLoading}
-                  />
-                  <Lock
-                    size={16}
-                    color="var(--text-muted)"
-                    style={{ position: 'absolute', left: '14px', top: '15px' }}
-                  />
-                </div>
-              </div>
-
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '8px',
-                  marginTop: '-4px',
-                  userSelect: 'none',
-                }}
-              >
-                <input
-                  type="checkbox"
-                  id="remember-email"
-                  checked={rememberEmail}
-                  onChange={e => setRememberEmail(e.target.checked)}
-                  style={{
-                    cursor: 'pointer',
-                    width: '16px',
-                    height: '16px',
-                    accentColor: 'var(--accent-purple)',
-                  }}
-                />
-                <label
-                  htmlFor="remember-email"
-                  style={{
-                    fontSize: '12px',
-                    color: 'var(--text-secondary)',
-                    cursor: 'pointer',
-                    fontWeight: 500,
-                  }}
-                >
-                  メールアドレスを記憶する
-                </label>
-              </div>
-
-              <button
-                type="submit"
-                className="btn btn-primary"
-                style={{
-                  width: '100%',
-                  marginTop: '10px',
-                  height: '46px',
-                  fontSize: '14px',
-                  fontWeight: 600,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: '8px',
-                  cursor: 'pointer',
-                }}
-                disabled={authLoading}
-              >
-                {authLoading ? 'ログイン中...' : 'ログイン'}
-              </button>
-
-              {cognitoClientId !== 'local' && (
-                <button
-                  type="button"
-                  className="btn btn-secondary"
-                  onClick={handlePasskeyLogin}
-                  style={{
-                    width: '100%',
-                    height: '46px',
-                    fontSize: '14px',
-                    fontWeight: 600,
                     display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: '8px',
-                    cursor: 'pointer',
-                    background: 'rgba(255, 255, 255, 0.05)',
-                    border: '1px solid rgba(255, 255, 255, 0.1)',
+                    flexDirection: 'column',
+                    gap: '18px',
+                    textAlign: 'left',
                   }}
-                  disabled={authLoading}
                 >
-                  <Key size={16} />
-                  パスキーでログイン
-                </button>
+                  <div className="form-group" style={{ margin: 0 }}>
+                    <label
+                      style={{
+                        fontSize: '12px',
+                        fontWeight: 600,
+                        color: 'var(--text-secondary)',
+                        marginBottom: '6px',
+                        display: 'block',
+                      }}
+                    >
+                      メールアドレス
+                    </label>
+                    <div style={{ position: 'relative' }}>
+                      <input
+                        type="email"
+                        className="form-control"
+                        placeholder="your-email@example.com"
+                        style={{ paddingLeft: '40px' }}
+                        value={loginEmail}
+                        onChange={e => setLoginEmail(e.target.value)}
+                        disabled={authLoading}
+                      />
+                      <Mail
+                        size={16}
+                        color="var(--text-muted)"
+                        style={{ position: 'absolute', left: '14px', top: '15px' }}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="form-group" style={{ margin: 0 }}>
+                    <label
+                      style={{
+                        fontSize: '12px',
+                        fontWeight: 600,
+                        color: 'var(--text-secondary)',
+                        marginBottom: '6px',
+                        display: 'block',
+                      }}
+                    >
+                      パスワード
+                    </label>
+                    <div style={{ position: 'relative' }}>
+                      <input
+                        type="password"
+                        className="form-control"
+                        placeholder="パスワードを入力"
+                        style={{ paddingLeft: '40px' }}
+                        value={loginPassword}
+                        onChange={e => setLoginPassword(e.target.value)}
+                        disabled={authLoading}
+                      />
+                      <Lock
+                        size={16}
+                        color="var(--text-muted)"
+                        style={{ position: 'absolute', left: '14px', top: '15px' }}
+                      />
+                    </div>
+                  </div>
+
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      marginTop: '-4px',
+                      userSelect: 'none',
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      id="remember-email"
+                      checked={rememberEmail}
+                      onChange={e => setRememberEmail(e.target.checked)}
+                      style={{
+                        cursor: 'pointer',
+                        width: '16px',
+                        height: '16px',
+                        accentColor: 'var(--accent-purple)',
+                      }}
+                    />
+                    <label
+                      htmlFor="remember-email"
+                      style={{
+                        fontSize: '12px',
+                        color: 'var(--text-secondary)',
+                        cursor: 'pointer',
+                        fontWeight: 500,
+                      }}
+                    >
+                      メールアドレスを記憶する
+                    </label>
+                  </div>
+
+                  <button
+                    type="submit"
+                    className="btn btn-primary"
+                    style={{
+                      width: '100%',
+                      marginTop: '10px',
+                      height: '46px',
+                      fontSize: '14px',
+                      fontWeight: 600,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '8px',
+                      cursor: 'pointer',
+                    }}
+                    disabled={authLoading}
+                  >
+                    {authLoading ? 'ログイン中...' : 'ログイン'}
+                  </button>
+
+                  {cognitoClientId !== 'local' && (
+                    <button
+                      type="button"
+                      className="btn btn-secondary"
+                      onClick={handlePasskeyLogin}
+                      style={{
+                        width: '100%',
+                        height: '46px',
+                        fontSize: '14px',
+                        fontWeight: 600,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '8px',
+                        cursor: 'pointer',
+                        background: 'rgba(255, 255, 255, 0.05)',
+                        border: '1px solid rgba(255, 255, 255, 0.1)',
+                      }}
+                      disabled={authLoading}
+                    >
+                      <Key size={16} />
+                      パスキーでログイン
+                    </button>
+                  )}
+
+                  <div
+                    style={{
+                      textAlign: 'center',
+                      marginTop: '12px',
+                      fontSize: '13px',
+                    }}
+                  >
+                    <span style={{ color: 'var(--text-muted)' }}>利用申請がまだですか？ </span>
+                    <button
+                      type="button"
+                      style={{
+                        background: 'none',
+                        border: 'none',
+                        color: 'var(--accent-purple)',
+                        fontWeight: 600,
+                        cursor: 'pointer',
+                        padding: 0,
+                      }}
+                      onClick={() => {
+                        setAuthState('signup');
+                        setAuthError('');
+                        setAuthSuccessMessage('');
+                      }}
+                    >
+                      新規登録（申請）する
+                    </button>
+                  </div>
+                </form>
               )}
-            </form>
+
+              {authState === 'signup' && (
+                // 新規利用申請フォーム
+                <form
+                  onSubmit={handleSignUpSubmit}
+                  style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '18px',
+                    textAlign: 'left',
+                  }}
+                >
+                  <div className="form-group" style={{ margin: 0 }}>
+                    <label
+                      style={{
+                        fontSize: '12px',
+                        fontWeight: 600,
+                        color: 'var(--text-secondary)',
+                        marginBottom: '6px',
+                        display: 'block',
+                      }}
+                    >
+                      メールアドレス
+                    </label>
+                    <div style={{ position: 'relative' }}>
+                      <input
+                        type="email"
+                        className="form-control"
+                        placeholder="your-email@example.com"
+                        style={{ paddingLeft: '40px' }}
+                        value={signUpEmail}
+                        onChange={e => setSignUpEmail(e.target.value)}
+                        disabled={authLoading}
+                      />
+                      <Mail
+                        size={16}
+                        color="var(--text-muted)"
+                        style={{ position: 'absolute', left: '14px', top: '15px' }}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="form-group" style={{ margin: 0 }}>
+                    <label
+                      style={{
+                        fontSize: '12px',
+                        fontWeight: 600,
+                        color: 'var(--text-secondary)',
+                        marginBottom: '6px',
+                        display: 'block',
+                      }}
+                    >
+                      パスワード (8文字以上)
+                    </label>
+                    <div style={{ position: 'relative' }}>
+                      <input
+                        type="password"
+                        className="form-control"
+                        placeholder="パスワードを入力"
+                        style={{ paddingLeft: '40px' }}
+                        value={signUpPassword}
+                        onChange={e => setSignUpPassword(e.target.value)}
+                        disabled={authLoading}
+                      />
+                      <Lock
+                        size={16}
+                        color="var(--text-muted)"
+                        style={{ position: 'absolute', left: '14px', top: '15px' }}
+                      />
+                    </div>
+                  </div>
+
+                  <button
+                    type="submit"
+                    className="btn btn-primary"
+                    style={{
+                      width: '100%',
+                      marginTop: '10px',
+                      height: '46px',
+                      fontSize: '14px',
+                      fontWeight: 600,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '8px',
+                      cursor: 'pointer',
+                    }}
+                    disabled={authLoading}
+                  >
+                    {authLoading ? '送信中...' : '確認コードを送信'}
+                  </button>
+
+                  <div
+                    style={{
+                      textAlign: 'center',
+                      marginTop: '12px',
+                      fontSize: '13px',
+                    }}
+                  >
+                    <button
+                      type="button"
+                      style={{
+                        background: 'none',
+                        border: 'none',
+                        color: 'var(--text-secondary)',
+                        fontWeight: 500,
+                        cursor: 'pointer',
+                        padding: 0,
+                      }}
+                      onClick={() => {
+                        setAuthState('login');
+                        setAuthError('');
+                      }}
+                    >
+                      ログイン画面へ戻る
+                    </button>
+                  </div>
+                </form>
+              )}
+
+              {authState === 'confirm' && (
+                // 確認コード検証フォーム
+                <form
+                  onSubmit={handleConfirmSignUpSubmit}
+                  style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '18px',
+                    textAlign: 'left',
+                  }}
+                >
+                  <div
+                    style={{
+                      background: 'rgba(59, 130, 246, 0.1)',
+                      border: '1px solid rgba(59, 130, 246, 0.2)',
+                      borderRadius: '12px',
+                      padding: '12px',
+                      fontSize: '12.5px',
+                      color: '#60a5fa',
+                      lineHeight: 1.4,
+                    }}
+                  >
+                    <strong>{signUpEmail}</strong>{' '}
+                    宛てに送信された6桁の確認コードを入力してください。
+                  </div>
+
+                  <div className="form-group" style={{ margin: 0 }}>
+                    <label
+                      style={{
+                        fontSize: '12px',
+                        fontWeight: 600,
+                        color: 'var(--text-secondary)',
+                        marginBottom: '6px',
+                        display: 'block',
+                      }}
+                    >
+                      確認コード
+                    </label>
+                    <input
+                      type="text"
+                      className="form-control"
+                      placeholder="6桁のコードを入力"
+                      maxLength={6}
+                      value={confirmCode}
+                      onChange={e => setConfirmCode(e.target.value)}
+                      disabled={authLoading}
+                      style={{
+                        letterSpacing: '8px',
+                        textAlign: 'center',
+                        fontSize: '18px',
+                        fontWeight: 700,
+                      }}
+                    />
+                  </div>
+
+                  <button
+                    type="submit"
+                    className="btn btn-primary"
+                    style={{
+                      width: '100%',
+                      marginTop: '10px',
+                      height: '46px',
+                      fontSize: '14px',
+                      fontWeight: 600,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '8px',
+                      cursor: 'pointer',
+                    }}
+                    disabled={authLoading}
+                  >
+                    {authLoading ? '検証中...' : '登録を完了する'}
+                  </button>
+
+                  <div
+                    style={{
+                      textAlign: 'center',
+                      marginTop: '12px',
+                      fontSize: '13px',
+                    }}
+                  >
+                    <button
+                      type="button"
+                      style={{
+                        background: 'none',
+                        border: 'none',
+                        color: 'var(--text-secondary)',
+                        fontWeight: 500,
+                        cursor: 'pointer',
+                        padding: 0,
+                      }}
+                      onClick={() => {
+                        setAuthState('signup');
+                        setAuthError('');
+                      }}
+                    >
+                      やり直す（申請画面に戻る）
+                    </button>
+                  </div>
+                </form>
+              )}
+            </>
           ) : (
             // 初回パスワード強制変更フォーム
             <form
@@ -1937,6 +2505,138 @@ export default function App() {
               </button>
             </form>
           )}
+        </div>
+      </div>
+    );
+  }
+
+  // 承認待ち画面の表示
+  if (isAuthRequired && token && !isApproved) {
+    return (
+      <div
+        className="app-container"
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          minHeight: '100vh',
+          padding: '20px',
+        }}
+      >
+        <GradientDefs />
+        <div
+          className="glass-card"
+          style={{
+            width: '100%',
+            maxWidth: '420px',
+            background:
+              'linear-gradient(135deg, rgba(27, 20, 52, 0.8) 0%, rgba(15, 18, 36, 0.8) 100%)',
+            border: '1px solid rgba(255, 255, 255, 0.08)',
+            boxShadow: '0 20px 50px rgba(0, 0, 0, 0.3)',
+            borderRadius: '24px',
+            padding: '40px 30px',
+            textAlign: 'center',
+            position: 'relative',
+            overflow: 'hidden',
+          }}
+        >
+          <div
+            style={{
+              position: 'absolute',
+              top: '-100px',
+              right: '-100px',
+              width: '200px',
+              height: '200px',
+              background: 'var(--accent-purple)',
+              filter: 'blur(80px)',
+              opacity: 0.25,
+              borderRadius: '50%',
+            }}
+          />
+
+          <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '20px' }}>
+            <div
+              style={{
+                background: 'rgba(239, 68, 68, 0.1)',
+                border: '1px solid rgba(239, 68, 68, 0.2)',
+                width: '54px',
+                height: '54px',
+                borderRadius: '16px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                boxShadow: '0 0 15px rgba(239, 68, 68, 0.3)',
+              }}
+            >
+              <Lock size={28} style={{ color: '#ef4444' }} />
+            </div>
+          </div>
+
+          <h2
+            style={{
+              fontSize: '22px',
+              fontWeight: 800,
+              letterSpacing: '-0.5px',
+              marginBottom: '12px',
+            }}
+          >
+            アカウント承認待ち
+          </h2>
+          <p
+            style={{
+              fontSize: '14px',
+              color: 'var(--text-secondary)',
+              lineHeight: 1.6,
+              marginBottom: '30px',
+            }}
+          >
+            ご利用ありがとうございます。アカウントの承認には、数時間〜数日かかることがあります。恐れ入りますが、承認完了までしばらくお待ちください。
+          </p>
+
+          <button
+            type="button"
+            className="btn btn-primary"
+            onClick={handleCheckApprovalStatus}
+            disabled={isCheckingStatus}
+            style={{
+              width: '100%',
+              height: '46px',
+              fontSize: '14px',
+              fontWeight: 600,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '8px',
+              cursor: isCheckingStatus ? 'not-allowed' : 'pointer',
+              marginBottom: '12px',
+              opacity: isCheckingStatus ? 0.8 : 1,
+            }}
+          >
+            <RefreshCw size={16} className={isCheckingStatus ? 'animate-spin-fast' : ''} />
+            {isCheckingStatus ? '確認中...' : '承認状態を確認する'}
+          </button>
+
+          <button
+            type="button"
+            className="btn btn-secondary"
+            onClick={handleLogout}
+            style={{
+              width: '100%',
+              height: '46px',
+              fontSize: '14px',
+              fontWeight: 600,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '8px',
+              cursor: 'pointer',
+              background: 'rgba(255, 255, 255, 0.05)',
+              border: '1px solid rgba(255, 255, 255, 0.1)',
+            }}
+          >
+            <LogOut size={16} />
+            ログアウト
+          </button>
         </div>
       </div>
     );
@@ -2045,9 +2745,9 @@ export default function App() {
                   alignItems: 'center',
                   gap: '2px',
                   fontSize: '9px',
-                  color: userRole === '管理者' ? '#a78bfa' : 'var(--text-secondary)',
+                  color: userRole === 'Admin' ? '#a78bfa' : 'var(--text-secondary)',
                   background:
-                    userRole === '管理者' ? 'rgba(167, 139, 250, 0.1)' : 'rgba(255,255,255,0.05)',
+                    userRole === 'Admin' ? 'rgba(167, 139, 250, 0.1)' : 'rgba(255,255,255,0.05)',
                   padding: '2px 6px',
                   borderRadius: '10px',
                   fontWeight: 600,
@@ -2617,6 +3317,31 @@ export default function App() {
         {/* ==================== 2. SCAN & REVIEW TAB ==================== */}
         {activeTab === 'scan' && (
           <div>
+            {/* スキャンカウンターの表示 */}
+            <div
+              className="glass-card"
+              style={{
+                padding: '16px 20px',
+                marginBottom: '16px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                background:
+                  'linear-gradient(135deg, rgba(139, 92, 246, 0.1) 0%, rgba(59, 130, 246, 0.05) 100%)',
+                border: '1px solid rgba(139, 92, 246, 0.15)',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <Sparkles size={18} style={{ color: 'var(--accent-purple)' }} />
+                <div style={{ textAlign: 'left' }}>
+                  <div style={{ fontSize: '13px', fontWeight: 600 }}>今月のAIスキャン数</div>
+                </div>
+              </div>
+              <div style={{ fontSize: '18px', fontWeight: 800, color: 'var(--text-light)' }}>
+                {scanLimit >= 999999 ? `${scanCount} / ∞` : `${scanCount} / ${scanLimit}`}
+              </div>
+            </div>
+
             {/* 連続スキャン成功メッセージの表示 */}
             {scanSuccessMessage && (
               <div

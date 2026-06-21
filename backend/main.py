@@ -58,6 +58,9 @@ COGNITO_USER_POOL_ID = os.environ.get("COGNITO_USER_POOL_ID")
 COGNITO_CLIENT_ID = os.environ.get("COGNITO_CLIENT_ID")
 AWS_REGION = os.environ.get("AWS_REGION", "ap-northeast-1")
 
+# 月間無料スキャン上限数
+FREE_MONTHLY_LIMIT = 1
+
 COGNITO_JWKS = None
 security_scheme = HTTPBearer(auto_error=False)
 
@@ -107,7 +110,16 @@ def handle_local_mock_auth(
 
     # S3やDynamoDBのキーとして使える形式でユーザーIDを生成
     user_id = f"local-user-{email.replace('@', '-').replace('.', '-')}"
-    groups = ["Admins"] if "admin" in email else ["Users"]
+    groups = []
+    if "admin" in email:
+        groups = ["Admins"]
+    elif "premium" in email:
+        groups = ["Premium"]
+    elif "lite" in email:
+        groups = ["Lite"]
+    elif "user" in email or "free" in email:
+        groups = ["Free"]
+    # それ以外（例: pending-user@example.com）は空のグループ（未承認状態）
     return {
         "sub": user_id,
         "email": email,
@@ -182,6 +194,20 @@ def get_current_user(
 
         traceback.print_exc()
         raise HTTPException(status_code=401, detail="Authentication failed") from e
+
+
+def verify_approved_user(
+    current_user: dict = Depends(get_current_user),  # noqa: B008
+) -> dict:
+    """ユーザーが承認されているか（AdminsまたはFreeまたはLiteまたはPremiumグループに属しているか）を確認します。"""
+    approved_groups = {"Admins", "Free", "Lite", "Premium"}
+    user_groups = set(current_user.get("groups", []))
+    if not approved_groups.intersection(user_groups):
+        raise HTTPException(
+            status_code=403,
+            detail="Your account is pending approval. Please contact the administrator.",
+        )
+    return current_user
 
 
 # ローカル環境起動時にテーブルがなければ自動作成する
@@ -297,20 +323,79 @@ def health_check():
 def get_me(current_user: dict = Depends(get_current_user)):  # noqa: B008
     """
     現在ログイン中のユーザープロフィール情報を返します。
+    認証状態に応じてスキャン回数制限情報や承認フラグを付与します。
     """
+    user_id = current_user["sub"]
+    user_groups = set(current_user.get("groups", []))
+    is_admin = "Admins" in user_groups
+    is_premium = "Premium" in user_groups
+    is_lite = "Lite" in user_groups
+    is_approved = bool({"Admins", "Free", "Lite", "Premium"}.intersection(user_groups))
+
+    scan_count = 0
+    scan_limit = FREE_MONTHLY_LIMIT
+    if is_admin or is_premium:
+        scan_limit = 999999  # 管理者またはプレミアム会員は無制限扱い
+    elif is_lite:
+        scan_limit = 30  # Liteプラン会員は月間30回制限
+
+    if is_approved:
+        try:
+            current_month = datetime.utcnow().strftime("%Y-%m")
+            stats_sk = f"STATS#{current_month}"
+            table = dynamodb.Table(TABLE_NAME)
+            response = table.get_item(Key={"PK": f"USER#{user_id}", "SK": stats_sk})
+            if "Item" in response:
+                scan_count = int(response["Item"].get("scan_count", 0))
+        except Exception as e:
+            print(f"Warning: Failed to fetch scan stats: {e}")
+
     return {
-        "user_id": current_user["sub"],
+        "user_id": user_id,
         "email": current_user["email"],
         "groups": current_user["groups"],
-        "is_admin": "Admins" in current_user["groups"],
+        "is_admin": is_admin,
+        "is_approved": is_approved,
+        "scan_count": scan_count,
+        "scan_limit": scan_limit,
     }
 
 
 @app.get("/api/receipts/presigned-url", response_model=PresignedUrlResponse)
-def get_presigned_url(filename: str, current_user: dict = Depends(get_current_user)):  # noqa: B008
+def get_presigned_url(
+    filename: str,
+    current_user: dict = Depends(verify_approved_user),  # noqa: B008
+):
     """
     フロントエンドがレシート画像をS3に直接アップロードするための署名付きURLを生成します。
     """
+    user_id = current_user["sub"]
+    user_groups = set(current_user.get("groups", []))
+    is_admin = "Admins" in user_groups
+    is_premium = "Premium" in user_groups
+    is_lite = "Lite" in user_groups
+
+    # 管理者およびプレミアム会員以外は月間スキャン回数の制限チェックを行う
+    if not is_admin and not is_premium:
+        limit = 30 if is_lite else FREE_MONTHLY_LIMIT
+        current_month = datetime.utcnow().strftime("%Y-%m")
+        stats_sk = f"STATS#{current_month}"
+        table = dynamodb.Table(TABLE_NAME)
+        try:
+            response = table.get_item(Key={"PK": f"USER#{user_id}", "SK": stats_sk})
+            if "Item" in response:
+                scan_count = int(response["Item"].get("scan_count", 0))
+                if scan_count >= limit:
+                    raise HTTPException(
+                        status_code=403,
+                        detail="今月のAIスキャン上限に達しました。プランのアップグレードをご検討ください。",
+                    )
+        except ClientError as e:
+            print(f"Error checking scan limit in presigned-url: {e}")
+            raise HTTPException(
+                status_code=500, detail="Database error while checking usage limits."
+            ) from e
+
     file_extension = os.path.splitext(filename)[1].lower()
     if file_extension not in [".jpg", ".jpeg", ".png"]:
         raise HTTPException(
@@ -343,7 +428,7 @@ def get_presigned_url(filename: str, current_user: dict = Depends(get_current_us
 @app.get("/api/receipts/view-url", response_model=ViewUrlResponse)
 def get_view_url(
     file_key: str,
-    current_user: dict = Depends(get_current_user),  # noqa: B008
+    current_user: dict = Depends(verify_approved_user),  # noqa: B008
 ):
     """
     S3に保存されているレシート画像を表示するための署名付きGET URLを生成します。
@@ -377,12 +462,41 @@ def get_view_url(
 @app.post("/api/receipts/analyze", response_model=ReceiptAnalysisResult)
 def analyze_receipt(
     payload: AnalyzeRequest,
-    current_user: dict = Depends(get_current_user),  # noqa: B008
+    current_user: dict = Depends(verify_approved_user),  # noqa: B008
 ):
     """
     S3にアップロードされた画像を Amazon Bedrock (Nova Lite) で解析し、
     JSONに構造化して返却します。
     """
+    user_id = current_user["sub"]
+    user_groups = set(current_user.get("groups", []))
+    is_admin = "Admins" in user_groups
+    is_premium = "Premium" in user_groups
+    is_lite = "Lite" in user_groups
+
+    # 管理者およびプレミアム会員以外は月間スキャン回数の制限チェックを行う
+    if not is_admin and not is_premium:
+        limit = 30 if is_lite else FREE_MONTHLY_LIMIT
+        current_month = datetime.utcnow().strftime("%Y-%m")
+        stats_sk = f"STATS#{current_month}"
+        table = dynamodb.Table(TABLE_NAME)
+        try:
+            table.update_item(
+                Key={"PK": f"USER#{user_id}", "SK": stats_sk},
+                UpdateExpression="SET scan_count = if_not_exists(scan_count, :zero) + :one",
+                ConditionExpression="attribute_not_exists(scan_count) OR scan_count < :limit",
+                ExpressionAttributeValues={":zero": 0, ":one": 1, ":limit": limit},
+            )
+        except ClientError as e:
+            if e.response["Error"]["Code"] == "ConditionalCheckFailedException":
+                raise HTTPException(
+                    status_code=403,
+                    detail="今月のAIスキャン上限に達しました。プランのアップグレードをご検討ください。",
+                ) from e
+            print(f"Error checking scan limit: {e}")
+            raise HTTPException(
+                status_code=500, detail="Database error while checking usage limits."
+            ) from e
     # 0. Validate S3 File Key
     # Prevent Path Traversal and Arbitrary Object Read
     if not payload.file_key.startswith("uploads/"):
@@ -701,7 +815,7 @@ def analyze_receipt(
 @app.post("/api/transactions")
 def save_transaction(
     payload: TransactionSaveRequest,
-    current_user: dict = Depends(get_current_user),  # noqa: B008
+    current_user: dict = Depends(verify_approved_user),  # noqa: B008
 ):
     """
     確定した家計簿データをDynamoDBに保存します。
@@ -738,17 +852,20 @@ def save_transaction(
 
 
 @app.get("/api/transactions")
-def list_transactions(current_user: dict = Depends(get_current_user)):  # noqa: B008
+def list_transactions(current_user: dict = Depends(verify_approved_user)):  # noqa: B008
     """
     ユーザーの取引履歴を取得します。
     """
     try:
         user_id = current_user["sub"]
         table = dynamodb.Table(TABLE_NAME)
-        # ユーザーに紐づくデータをDynamoDBからQuery
+        # ユーザーに紐づく取引履歴データ（SKがTX#で始まるもの）のみをDynamoDBからQuery
         response = table.query(
-            KeyConditionExpression="PK = :pk",
-            ExpressionAttributeValues={":pk": f"USER#{user_id}"},
+            KeyConditionExpression="PK = :pk AND begins_with(SK, :sk_prefix)",
+            ExpressionAttributeValues={
+                ":pk": f"USER#{user_id}",
+                ":sk_prefix": "TX#",
+            },
             ScanIndexForward=False,  # 新しい日付順に取得
         )
         return response.get("Items", [])
@@ -760,7 +877,7 @@ def list_transactions(current_user: dict = Depends(get_current_user)):  # noqa: 
 def update_transaction(
     transaction_id: str,
     payload: TransactionSaveRequest,
-    current_user: dict = Depends(get_current_user),  # noqa: B008
+    current_user: dict = Depends(verify_approved_user),  # noqa: B008
 ):
     """
     指定された取引履歴を編集してDynamoDBに保存します。
@@ -807,7 +924,7 @@ def update_transaction(
 @app.delete("/api/transactions/{transaction_id}")
 def delete_transaction(
     transaction_id: str,
-    current_user: dict = Depends(get_current_user),  # noqa: B008
+    current_user: dict = Depends(verify_approved_user),  # noqa: B008
 ):
     """
     指定された取引履歴をDynamoDBから削除します。
@@ -828,37 +945,56 @@ handler = Mangum(app)
 
 def post_authentication(event, context):
     """
-    CognitoのPost Authenticationトリガー。ログイン成功時に起動してDiscordへ通知を送信します。
+    CognitoのPost AuthenticationおよびPost Confirmationトリガー。
+    ログイン成功時、または新規登録確認完了（利用申請）時にDiscordへ通知を送信します。
     """
     try:
+        trigger_source = event.get("triggerSource", "")
         request_data = event.get("request", {})
         user_attributes = request_data.get("userAttributes", {})
         email = user_attributes.get("email", "不明なユーザー")
 
-        caller_context = event.get("callerContext", {})
-        ip_address = caller_context.get("ipAddress", "不明なIP")
-        user_agent = caller_context.get("userAgent", "不明なデバイス")
-
-        # 通知メッセージの構築
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        message = (
-            f"🔓 **[SnapKakeibo] ユーザーログイン検知**\n"
-            f"👤 **ユーザー**: {email}\n"
-            f"📅 **日時**: {timestamp} (JST)\n"
-            f"🌐 **IPアドレス**: `{ip_address}`\n"
-            f"📱 **デバイス**: `{user_agent}`"
-        )
 
-        webhook_url = os.environ.get("DISCORD_WEBHOOK_URL")
+        if trigger_source == "PostConfirmation_ConfirmSignUp":
+            # 新規利用申請（サインアップ完了）通知
+            message = (
+                f"📝 **[SnapKakeibo] 新規利用申請（サインアップ）検出**\n"
+                f"👤 **ユーザー**: {email}\n"
+                f"📅 **日時**: {timestamp} (JST)\n"
+                f"ℹ️ **ステータス**: 管理者による承認（Cognitoグループへの登録）待ちです。"
+            )
+        else:
+            # 通常のユーザーログイン通知
+            caller_context = event.get("callerContext", {})
+            ip_address = caller_context.get("ipAddress", "不明なIP")
+            user_agent = caller_context.get("userAgent", "不明なデバイス")
+            message = (
+                f"🔓 **[SnapKakeibo] ユーザーログイン検知**\n"
+                f"👤 **ユーザー**: {email}\n"
+                f"📅 **日時**: {timestamp} (JST)\n"
+                f"🌐 **IPアドレス**: `{ip_address}`\n"
+                f"📱 **デバイス**: `{user_agent}`"
+            )
+
+        # 送信先Webhookの判別（新規申請時はDISCORD_SIGNUP_WEBHOOK_URL、それ以外はDISCORD_WEBHOOK_URL）
+        if trigger_source == "PostConfirmation_ConfirmSignUp":
+            webhook_url = os.environ.get("DISCORD_SIGNUP_WEBHOOK_URL")
+            webhook_name = "DISCORD_SIGNUP_WEBHOOK_URL"
+        else:
+            webhook_url = os.environ.get("DISCORD_WEBHOOK_URL")
+            webhook_name = "DISCORD_WEBHOOK_URL"
+
         if webhook_url:
             payload = {"content": message}
             response = requests.post(webhook_url, json=payload, timeout=5)
             response.raise_for_status()
         else:
-            print("Warning: DISCORD_WEBHOOK_URL is not set. Skip sending notification.")
+            print(f"Warning: {webhook_name} is not set. Skip sending notification.")
 
     except Exception as e:
-        # トリガー内のエラーでログイン処理自体が失敗しないように例外をキャッチしてログ出力します
+        # トリガー内のエラーでユーザー登録/ログイン処理自体が失敗しないように例外をキャッチしてログ出力します
         print(f"Error in post_authentication trigger: {e}")
 
+    # Cognitoトリガーは必ず受け取ったeventオブジェクトを返却する必要があります
     return event
