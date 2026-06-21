@@ -1,4 +1,4 @@
-.PHONY: up up-build down logs ps lint format lint-fe lint-be format-fe format-be deploy deploy-fe deploy-be
+.PHONY: up up-build down logs ps lint format lint-fe lint-be format-fe format-be deploy deploy-fe deploy-be delete-user approve-user
 
 # ==========================================
 # 🐳 Docker Compose コマンド
@@ -90,3 +90,40 @@ deploy-be:
 	@echo "インフラ（Lambda / API Gateway / DynamoDB）を更新中..."
 	cd infra && AWS_PROFILE=$(AWS_PROFILE) npx serverless deploy
 	@echo "\n✨ バックエンドのデプロイ完了！"
+
+# ==========================================
+# 🧹 管理者用 ユーティリティコマンド
+# ==========================================
+
+# delete-user または approve-user の引数として positional argument（メールアドレス）を受け取るためのハック
+ifeq (delete-user,$(firstword $(MAKECMDGOALS)))
+  RUN_ARGS := $(wordlist 2,$(words $(MAKECMDGOALS)),$(MAKECMDGOALS))
+  $(eval $(RUN_ARGS):;@:)
+endif
+ifeq (approve-user,$(firstword $(MAKECMDGOALS)))
+  RUN_ARGS := $(wordlist 2,$(words $(MAKECMDGOALS)),$(MAKECMDGOALS))
+  $(eval $(RUN_ARGS):;@:)
+endif
+
+# 指定したユーザーに関連するすべてのデータ（Cognito、S3、DynamoDB）を一括削除する
+# 使い方: make delete-user user@example.com [stage=prod]
+delete-user:
+	@if [ -z "$(RUN_ARGS)" ]; then \
+		echo "❌ エラー: メールアドレスを指定してください。 (例: make delete-user user@example.com)"; \
+		exit 1; \
+	fi
+	docker compose exec backend python scripts/delete_user.py $(firstword $(RUN_ARGS)) \
+		$(if $(stage),--stage $(stage),) \
+		$(if $(AWS_PROFILE),--profile $(AWS_PROFILE),$(if $(profile),--profile $(profile),))
+
+# ユーザーを承認し、プランを設定する（Cognitoグループに追加・既存グループから削除）
+# 使い方: make approve-user user@example.com [Free|Lite|Premium|Admins] [stage=prod]
+approve-user:
+	@if [ -z "$(RUN_ARGS)" ]; then \
+		echo "❌ エラー: メールアドレスを指定してください。 (例: make approve-user user@example.com [Free|Lite|Premium|Admins])"; \
+		exit 1; \
+	fi
+	docker compose exec backend python scripts/approve_user.py $(firstword $(RUN_ARGS)) \
+		$(if $(word 2,$(RUN_ARGS)),--group $(word 2,$(RUN_ARGS)),) \
+		$(if $(stage),--stage $(stage),) \
+		$(if $(AWS_PROFILE),--profile $(AWS_PROFILE),$(if $(profile),--profile $(profile),))
