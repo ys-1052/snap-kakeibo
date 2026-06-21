@@ -295,6 +295,7 @@ export default function App() {
   const [authError, setAuthError] = useState('');
   const [authSuccessMessage, setAuthSuccessMessage] = useState('');
   const [authLoading, setAuthLoading] = useState(false);
+  const [isCheckingStatus, setIsCheckingStatus] = useState(false);
 
   // 自己サインアップ（利用申請）ステート
   const [authState, setAuthState] = useState<'login' | 'signup' | 'confirm'>('login');
@@ -1210,6 +1211,14 @@ export default function App() {
         console.warn('Cognito token revocation failed:', err);
       });
     }
+  };
+
+  const handleCheckApprovalStatus = () => {
+    setIsCheckingStatus(true);
+    setRefreshKey(prev => prev + 1);
+    setTimeout(() => {
+      setIsCheckingStatus(false);
+    }, 1000);
   };
 
   const handleLoginSubmit = async (e: React.FormEvent) => {
@@ -2581,8 +2590,31 @@ export default function App() {
               marginBottom: '30px',
             }}
           >
-            ご利用ありがとうございます。アカウントが承認されるまで、しばらくお待ちください。
+            ご利用ありがとうございます。アカウントの承認には、数時間〜数日かかることがあります。恐れ入りますが、承認完了までしばらくお待ちください。
           </p>
+
+          <button
+            type="button"
+            className="btn btn-primary"
+            onClick={handleCheckApprovalStatus}
+            disabled={isCheckingStatus}
+            style={{
+              width: '100%',
+              height: '46px',
+              fontSize: '14px',
+              fontWeight: 600,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '8px',
+              cursor: isCheckingStatus ? 'not-allowed' : 'pointer',
+              marginBottom: '12px',
+              opacity: isCheckingStatus ? 0.8 : 1,
+            }}
+          >
+            <RefreshCw size={16} className={isCheckingStatus ? 'animate-spin-fast' : ''} />
+            {isCheckingStatus ? '確認中...' : '承認状態を確認する'}
+          </button>
 
           <button
             type="button"
