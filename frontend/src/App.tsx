@@ -1358,11 +1358,7 @@ export default function App() {
     // ローカル擬似認証モードの場合のバイパス処理（検証成功）
     if (cognitoClientId === 'local') {
       setTimeout(() => {
-        setAuthState('login');
-        setLoginEmail(signUpEmail);
-        setAuthSuccessMessage(
-          '利用申請が完了しました！ログインして管理者による承認をお待ちください。'
-        );
+        completeLogin(`local-token-${signUpEmail}`, signUpEmail);
         setSignUpEmail('');
         setSignUpPassword('');
         setConfirmCode('');
@@ -1380,12 +1376,39 @@ export default function App() {
       if (res.error) {
         setAuthError(translateCognitoError(res.error));
       } else {
-        // ログイン画面へ戻し、成功メッセージを表示
-        setAuthState('login');
-        setLoginEmail(signUpEmail);
-        setAuthSuccessMessage(
-          '利用申請が完了しました！ログインして管理者による承認をお待ちください。'
-        );
+        // 自動ログインを試みる
+        try {
+          const signInRes = await cognitoSignIn(signUpEmail, signUpPassword, {
+            clientId: cognitoClientId,
+            region: cognitoRegion,
+          });
+          if (signInRes.error) {
+            // 自動ログインに失敗した場合はログイン画面に戻して手動ログインを促す
+            setAuthState('login');
+            setLoginEmail(signUpEmail);
+            setAuthError(
+              `登録は完了しましたが、自動ログインに失敗しました: ${translateCognitoError(
+                signInRes.error
+              )}。再度ログインをお試しください。`
+            );
+          } else if (signInRes.idToken) {
+            completeLogin(
+              signInRes.idToken,
+              signUpEmail,
+              signInRes.refreshToken,
+              signInRes.accessToken
+            );
+          } else {
+            setAuthState('login');
+            setLoginEmail(signUpEmail);
+          }
+        } catch (loginErr: any) {
+          setAuthState('login');
+          setLoginEmail(signUpEmail);
+          setAuthError(
+            `登録は完了しましたが、自動ログイン中にエラーが発生しました。再度ログインをお試しください。`
+          );
+        }
         setSignUpEmail('');
         setSignUpPassword('');
         setConfirmCode('');
