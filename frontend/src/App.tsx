@@ -307,6 +307,7 @@ export default function App() {
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [isScanning, setIsScanning] = useState(false);
   const [scanStep, setScanStep] = useState<string>('');
+  const [scanSuccessMessage, setScanSuccessMessage] = useState<string>('');
 
   // 解析結果プレビュー & 編集
   const [editData, setEditData] = useState<Partial<Transaction> | null>(null);
@@ -1105,7 +1106,11 @@ export default function App() {
     setSelectedFile(null);
     setPreviewUrl(null);
     setEditData(null);
-    setActiveTab('dashboard');
+    // スキャン完了メッセージを表示して、スキャンタブに留まる
+    setScanSuccessMessage('明細を登録しました！続けてスキャンできます。');
+    setTimeout(() => {
+      setScanSuccessMessage('');
+    }, 4000);
   };
 
   // 取引データの更新
@@ -3282,12 +3287,34 @@ export default function App() {
               </div>
             </div>
 
+            {/* 連続スキャン成功メッセージの表示 */}
+            {scanSuccessMessage && (
+              <div
+                style={{
+                  background: 'rgba(16, 185, 129, 0.1)',
+                  border: '1px solid rgba(16, 185, 129, 0.2)',
+                  borderRadius: '16px',
+                  padding: '16px',
+                  fontSize: '14px',
+                  color: '#34d399',
+                  textAlign: 'left',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '10px',
+                  marginBottom: '16px',
+                }}
+              >
+                <Check size={18} style={{ flexShrink: 0 }} />
+                <span style={{ fontWeight: 500 }}>{scanSuccessMessage}</span>
+              </div>
+            )}
             {!previewUrl && !editData && (
               <div className="glass-card" style={{ padding: '40px 20px', textAlign: 'center' }}>
                 <label className="upload-zone" style={{ display: 'block' }}>
                   <input
                     type="file"
                     accept="image/*"
+                    value=""
                     onChange={handleFileChange}
                     style={{ display: 'none' }}
                   />
