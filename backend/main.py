@@ -12,7 +12,7 @@ from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from mangum import Mangum
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 app = FastAPI(title="SnapKakeibo API", version="1.0.0")
 
@@ -239,6 +239,20 @@ def setup_local_db():
 # --- スキーマ定義 (Pydantic) ---
 
 
+def _coerce_to_int(v) -> Optional[int]:
+    if v is None:
+        return None
+    if isinstance(v, (int, float)):
+        return int(round(v))
+    if isinstance(v, str):
+        try:
+            cleaned = v.replace(",", "").replace("¥", "").replace("円", "").strip()
+            return int(round(float(cleaned)))
+        except ValueError:
+            pass
+    return v
+
+
 class PresignedUrlResponse(BaseModel):
     upload_url: str
     file_key: str
@@ -262,6 +276,11 @@ class ReceiptItem(BaseModel):
         None, description="レシート上の税印マーク（例：※, 軽, 非 など）"
     )
 
+    @field_validator("price", "qty", "tax_rate", mode="before")
+    @classmethod
+    def coerce_to_int_fields(cls, v):
+        return _coerce_to_int(v)
+
 
 class TaxSummaryItem(BaseModel):
     tax_rate: Optional[int] = Field(None, description="消費税率（8または10）")
@@ -271,6 +290,11 @@ class TaxSummaryItem(BaseModel):
         None,
         description="対象額が税込ベースか否か（内税の場合はtrue、外税の場合はfalse）",
     )
+
+    @field_validator("tax_rate", "taxable_amount", "tax_amount", mode="before")
+    @classmethod
+    def coerce_to_int_fields(cls, v):
+        return _coerce_to_int(v)
 
 
 class ReceiptAnalysisResult(BaseModel):
@@ -295,6 +319,11 @@ class ReceiptAnalysisResult(BaseModel):
         default_factory=list, description="税率別の集計リスト"
     )
 
+    @field_validator("total_amount", mode="before")
+    @classmethod
+    def coerce_total_amount(cls, v):
+        return _coerce_to_int(v)
+
 
 class AnalyzeRequest(BaseModel):
     file_key: str
@@ -309,6 +338,11 @@ class TransactionSaveRequest(BaseModel):
     tax_summary: Optional[List[TaxSummaryItem]] = Field(default_factory=list)
     receipt_s3_key: Optional[str] = None
     memo: Optional[str] = ""
+
+    @field_validator("total_amount", mode="before")
+    @classmethod
+    def coerce_total_amount(cls, v):
+        return _coerce_to_int(v)
 
 
 # --- API エンドポイント ---
@@ -540,7 +574,7 @@ def analyze_receipt(
             【重要ルール】
             1. レシートに記載されている情報のみを使用してください。
             2. 読み取れない値や存在しない値は null にしてください。
-            3. 金額はすべて支払金額ベースで、数値のみを出力してください。円記号、カンマ、単位は含めないでください。
+            3. 金額はすべて支払金額ベースで、整数値のみを出力してください。円記号、カンマ、単位は含めないでください。
             4. 日付は YYYY-MM-DD 形式に正規化してください。
             5. 年が記載されていない場合は、画像または文脈から確実に判断できる場合のみ補完してください。判断できない場合は null にしてください。
             6. 店舗名はレシート上部の正式な店舗名を優先してください。
@@ -550,7 +584,7 @@ def analyze_receipt(
             10. 【合計割引の処理】アプリクーポン、会員割引、まとめ買い割引など、合計金額または小計に対して一括で適用される割引・値引きは、特定の品目に紐付けられないため items には追加しないでください。これらの合計割引はすでに total_amount（実支払額）に反映されているものとして扱ってください。items には各購入品目のレシート上の金額をそのまま記録します。
             11. 【品目割引の処理】特定の商品に対して直接適用される値引き（シール割引、単品値引き等）がある場合は、値引き後の実支払価格を price（単価）に反映し、品目名(items.name)の末尾に「（値引き）」を付与した1行のみを出力してください。
                 【極めて重要】
-                - 商品行の直後に「シール割引」「割引」「値引き」「％引」「割分」「バンドル割引」などの値引き情報が記載された行がある場合、それは直前の商品に対する値引きです。元の商品の価格から値引き額を差し引いた金額（値引き後の実支払価格）を計算し、それを price に設定してください。値引き額が % で記載されている場合（例: 20%）は、元の価格からその割合分（例: 20%分）を引いた額（端数は四捨五入などレシートの印字に合わせる）を計算して設定してください。
+                - 商品行の直後に「シール割引」「割引」「値引き」「％引」「割分」「バンドル割引」などの値引き情報（マイナス表記の額も含む）がある場合、それは直前の商品に対する値引きです。元の商品の価格から値引き額を差し引いた金額（値引き後の実支払価格）を計算し、それを price に設定してください。値引き額が % で記載されている場合（例: 20%）は、元の価格からその割合分（例: 20%分）を引いた額（端数は四捨五入などレシートの印字に合わせる）を計算して設定してください。
                 - 値引き適用前の商品行と、値引き後の商品行の両方を重複して items に出力しないでください。必ず値引き後の商品行「のみ」を出力してください。
                 - 値引き情報が記載された行自体を、独立した単体の品目として items に絶対に追加しないでください。値引き行は必ず直前の該当する商品行と統合し、items の要素数が増えないようにしてください。
             12. qty は購入個数（レジでその商品を何点スキャンしたか）です。数量が明記されていない場合は 1 にしてください。
@@ -561,7 +595,7 @@ def analyze_receipt(
                 【重要】商品名行の「次の行」（別行）に「NコX単M」「N個X単価M」「NコxM」「N×単M」など「個数×単価」を示す行が単独で存在する場合、それは直前の商品の数量・単価の明細行です。qty=N（個数）、price=M（単価）として直前の商品内に統合し、この明細行自体を独立した品目として追加しないでください。なお「NコX単M」行の末尾にある合計金額（¥N×M）は price ではなく検証用の参考値として使用してください。
                 （例：商品名の次行に単独で「3コX単100 ¥300」と印字されていれば、qty=3, price=100（単価）の1行にまとめる）
                 【注意】「商品名 ○個入 ¥XXX」のように商品名・内容量・金額が同じ1行に並んでいる場合、内容量表示（○個入、○本入など）は購入個数ではありません。この場合は qty=1 として扱い、price=レシートの金額にしてください。「NコX単M」形式が別行で存在する場合のみ qty を N にしてください。
-            13. price はその品目の単価（1個あたりの金額）を入れてください。「NコX単M」形式の別行がある場合は M（単価）を price に、N を qty に入れてください。単価の記載がなく合計金額しかない場合（qty=1 の場合）は、その合計金額を price に入れてください。
+            13. price はその品目の単価（1個あたりの金額）を整数値で入れてください。「NコX単M」形式の別行がある場合は M（単価）を price に、N を qty に入れてください。単価の記載がなく合計金額しかない場合（qty=1 の場合）は、その合計金額を price に入れてください。
             14. 商品名行と金額行が分離して印字されている場合は、それぞれ別個の品目として追加しないでください。ただし、「NコxM」のような数量×単価行は必ず直前の商品行に統合してください（ルール12参照）。
             15. OCR誤認識が疑われる場合でも、確実に読める範囲で抽出し、不確かな値は null にしてください。
             16. JSONとして不正な trailing comma は絶対に付けないでください。

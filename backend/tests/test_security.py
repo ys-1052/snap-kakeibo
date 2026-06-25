@@ -1,5 +1,7 @@
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 # Needs to be imported like this since tests might be run from the root directory or backend directory
 from backend.main import app
 from fastapi.testclient import TestClient
@@ -8,6 +10,14 @@ client = TestClient(app)
 
 # Create a dummy user dictionary for the mock to return
 DUMMY_USER = {"sub": "user_id_123"}
+
+
+@pytest.fixture(autouse=True)
+def mock_dynamodb():
+    with patch("backend.main.dynamodb") as mock_db:
+        mock_table = MagicMock()
+        mock_db.Table.return_value = mock_table
+        yield mock_db
 
 
 def test_analyze_receipt_invalid_file_key_not_uploads():
@@ -101,7 +111,62 @@ def test_analyze_receipt_valid_file_key(mock_s3_client):
         app.dependency_overrides.clear()
 
         assert response.status_code == 200
+        from backend.main import BUCKET_NAME
+
         mock_s3_client.get_object.assert_called_once_with(
-            Bucket="snap-kakeibo-receipts",  # Note: It uses the BUCKET_NAME which default to this
+            Bucket=BUCKET_NAME,
             Key="uploads/valid_receipt.jpg",
         )
+
+
+@patch("backend.main.s3_client")
+def test_analyze_receipt_float_price_coercion(mock_s3_client):
+    """Test that float values in receipt items and totals are successfully coerced to integers."""
+    payload = {"file_key": "uploads/valid_receipt.jpg"}
+
+    # Mock S3 response
+    mock_response = MagicMock()
+    mock_body = MagicMock()
+    mock_body.read.return_value = b"fake_image_bytes"
+    mock_response.__getitem__.return_value = mock_body
+    mock_s3_client.get_object.return_value = mock_response
+
+    with (
+        patch("backend.main.get_current_user", return_value=DUMMY_USER),
+        patch("backend.main.bedrock_client") as mock_bedrock,
+    ):
+        # Bedrock response contains float values for price, total_amount, tax_rate, and taxable_amount
+        mock_bedrock_response = {
+            "output": {
+                "message": {
+                    "content": [
+                        {
+                            "text": '```json\n{\n  "transaction_date": "2026-06-16",\n  "shop_name": "Test Shop",\n  "total_amount": 1331.0,\n  "category_name": "食費",\n  "items": [\n    {\n      "name": "ホットドッグロール",\n      "price": 27.8,\n      "qty": 5.0,\n      "tax_rate": 8.0,\n      "tax_included": false,\n      "tax_marker": "*"\n    }\n  ],\n  "tax_summary": [\n    {\n      "tax_rate": 8.0,\n      "taxable_amount": 1288.0,\n      "tax_amount": 103.0,\n      "tax_included": false\n    }\n  ]\n}\n```'
+                        }
+                    ]
+                }
+            }
+        }
+        mock_bedrock.converse.return_value = mock_bedrock_response
+
+        from backend.main import get_current_user
+
+        app.dependency_overrides[get_current_user] = lambda: DUMMY_USER
+
+        response = client.post(
+            "/api/receipts/analyze",
+            json=payload,
+        )
+
+        app.dependency_overrides.clear()
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["total_amount"] == 1331
+        assert data["items"][0]["price"] == 28
+        assert data["items"][0]["qty"] == 5
+
+        assert data["items"][0]["tax_rate"] == 8
+        assert data["tax_summary"][0]["tax_rate"] == 8
+        assert data["tax_summary"][0]["taxable_amount"] == 1288
+        assert data["tax_summary"][0]["tax_amount"] == 103
