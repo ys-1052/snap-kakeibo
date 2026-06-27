@@ -388,12 +388,12 @@ export default function App() {
             return liff.getProfile();
           }
         })
-        .then(profile => {
+        .then((profile: any) => {
           if (profile) {
             setLineProfile(profile);
           }
         })
-        .catch(err => {
+        .catch((err: any) => {
           console.error('LIFF initialization failed:', err);
           setLiffMessage({ type: 'error', text: `LIFF初期化エラー: ${err.message}` });
         })
