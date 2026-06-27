@@ -345,33 +345,42 @@ export default function App() {
   // LINE連携関連ステート
   const [isLiff, setIsLiff] = useState(false);
   const [lineProfile, setLineProfile] = useState<any>(null);
-  const [lineLinkStatus, setLineLinkStatus] = useState<{ linked: boolean; line_user_id?: string } | null>(null);
+  const [lineLinkStatus, setLineLinkStatus] = useState<{
+    linked: boolean;
+    line_user_id?: string;
+  } | null>(null);
   const [liffLoading, setLiffLoading] = useState(false);
-  const [liffMessage, setLiffMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [liffMessage, setLiffMessage] = useState<{
+    type: 'success' | 'error';
+    text: string;
+  } | null>(null);
 
   // LINE LIFF初期化と状態監視
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    const isLiffParam = params.get('liff') === 'true' || window.location.search.includes('liff.state');
+    const isLiffParam =
+      params.get('liff') === 'true' || window.location.search.includes('liff.state');
     const isLiffPath = window.location.pathname.includes('/liff');
-    
+
     if (isLiffParam || isLiffPath) {
       console.log('LIFF mode detected.');
       setIsLiff(true);
-      
+
       const liffId = CONFIG.LIFF_ID;
       if (!liffId) {
         console.warn('VITE_LIFF_ID is not configured. Running in mock LIFF mode.');
         setLineProfile({
           displayName: 'ローカルモックユーザー',
           userId: 'Umock1234567890abcdef1234567890ab',
-          pictureUrl: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=150&q=80',
+          pictureUrl:
+            'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=150&q=80',
         });
         return;
       }
 
       setLiffLoading(true);
-      liff.init({ liffId })
+      liff
+        .init({ liffId })
         .then(() => {
           if (!liff.isLoggedIn()) {
             liff.login();
@@ -379,12 +388,12 @@ export default function App() {
             return liff.getProfile();
           }
         })
-        .then((profile) => {
+        .then(profile => {
           if (profile) {
             setLineProfile(profile);
           }
         })
-        .catch((err) => {
+        .catch(err => {
           console.error('LIFF initialization failed:', err);
           setLiffMessage({ type: 'error', text: `LIFF初期化エラー: ${err.message}` });
         })
@@ -422,7 +431,7 @@ export default function App() {
       setLiffMessage({ type: 'error', text: '自社アカウントにログインしていません。' });
       return;
     }
-    
+
     setLiffLoading(true);
     setLiffMessage(null);
     try {
@@ -706,7 +715,8 @@ export default function App() {
           setSelectedTransaction(found);
           setEditData({ ...found });
           // URLパラメータをクリーンアップして、履歴にパラメータを残さないようにする
-          const newUrl = window.location.protocol + '//' + window.location.host + window.location.pathname;
+          const newUrl =
+            window.location.protocol + '//' + window.location.host + window.location.pathname;
           window.history.replaceState({ path: newUrl }, '', newUrl);
         }
       }
@@ -2070,7 +2080,8 @@ export default function App() {
           style={{
             width: '100%',
             maxWidth: '420px',
-            background: 'linear-gradient(135deg, rgba(27, 20, 52, 0.8) 0%, rgba(15, 18, 36, 0.8) 100%)',
+            background:
+              'linear-gradient(135deg, rgba(27, 20, 52, 0.8) 0%, rgba(15, 18, 36, 0.8) 100%)',
             border: '1px solid rgba(255, 255, 255, 0.08)',
             boxShadow: '0 20px 50px rgba(0, 0, 0, 0.3)',
             borderRadius: '24px',
@@ -2080,18 +2091,30 @@ export default function App() {
         >
           <div style={{ marginBottom: '24px' }}>
             <MessageSquare size={48} style={{ color: '#06C755', margin: '0 auto 16px' }} />
-            <h2 style={{ fontSize: '20px', fontWeight: '700', color: 'var(--text-light)', margin: '0 0 8px' }}>
+            <h2
+              style={{
+                fontSize: '20px',
+                fontWeight: '700',
+                color: 'var(--text-light)',
+                margin: '0 0 8px',
+              }}
+            >
               LINEアカウント連携
             </h2>
             <p style={{ fontSize: '14px', color: 'var(--text-secondary)', margin: 0 }}>
-              {lineProfile?.displayName ? `${lineProfile.displayName} さんとしてログインしています` : 'LINEアカウントと連携します'}
+              {lineProfile?.displayName
+                ? `${lineProfile.displayName} さんとしてログインしています`
+                : 'LINEアカウントと連携します'}
             </p>
           </div>
 
           {liffMessage && (
             <div
               style={{
-                background: liffMessage.type === 'success' ? 'rgba(6, 199, 85, 0.15)' : 'rgba(239, 68, 68, 0.15)',
+                background:
+                  liffMessage.type === 'success'
+                    ? 'rgba(6, 199, 85, 0.15)'
+                    : 'rgba(239, 68, 68, 0.15)',
                 border: `1px solid ${liffMessage.type === 'success' ? 'rgba(6, 199, 85, 0.3)' : 'rgba(239, 68, 68, 0.3)'}`,
                 borderRadius: '12px',
                 padding: '12px',
@@ -2108,7 +2131,14 @@ export default function App() {
           <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
             {lineLinkStatus?.linked ? (
               <>
-                <p style={{ fontSize: '14px', color: '#06C755', fontWeight: '500', marginBottom: '16px' }}>
+                <p
+                  style={{
+                    fontSize: '14px',
+                    color: '#06C755',
+                    fontWeight: '500',
+                    marginBottom: '16px',
+                  }}
+                >
                   ✓ アカウント連携が完了しています
                 </p>
                 <button
@@ -2254,8 +2284,17 @@ export default function App() {
                 <p style={{ fontSize: '13px', fontWeight: '700', color: '#06C755', margin: 0 }}>
                   LINEアカウント連携中
                 </p>
-                <p style={{ fontSize: '11px', color: 'var(--text-secondary)', margin: '2px 0 0 0', lineHeight: '1.4' }}>
-                  {lineProfile ? `${lineProfile.displayName} さんと連携するために、ログインまたは新規登録を行ってください。` : 'ログイン後にアカウントの連携を完了させます。'}
+                <p
+                  style={{
+                    fontSize: '11px',
+                    color: 'var(--text-secondary)',
+                    margin: '2px 0 0 0',
+                    lineHeight: '1.4',
+                  }}
+                >
+                  {lineProfile
+                    ? `${lineProfile.displayName} さんと連携するために、ログインまたは新規登録を行ってください。`
+                    : 'ログイン後にアカウントの連携を完了させます。'}
                 </p>
               </div>
             </div>
@@ -5004,7 +5043,10 @@ export default function App() {
                 {liffMessage && (
                   <div
                     style={{
-                      background: liffMessage.type === 'success' ? 'rgba(6, 199, 85, 0.12)' : 'rgba(239, 68, 68, 0.12)',
+                      background:
+                        liffMessage.type === 'success'
+                          ? 'rgba(6, 199, 85, 0.12)'
+                          : 'rgba(239, 68, 68, 0.12)',
                       border: `1px solid ${liffMessage.type === 'success' ? 'rgba(6, 199, 85, 0.3)' : 'rgba(239, 68, 68, 0.3)'}`,
                       color: liffMessage.type === 'success' ? '#06C755' : '#ef4444',
                       borderRadius: '12px',
@@ -5037,7 +5079,9 @@ export default function App() {
                       連携ステータス
                     </span>
                     {lineLinkStatus === null ? (
-                      <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>確認中...</span>
+                      <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
+                        確認中...
+                      </span>
                     ) : lineLinkStatus.linked ? (
                       <span
                         style={{
@@ -5122,7 +5166,9 @@ export default function App() {
                           }}
                           disabled={liffLoading}
                         >
-                          {liffLoading ? '連携中...' : `${lineProfile?.displayName || 'LINE'} とアカウント連携する`}
+                          {liffLoading
+                            ? '連携中...'
+                            : `${lineProfile?.displayName || 'LINE'} とアカウント連携する`}
                         </button>
                       )}
                     </div>

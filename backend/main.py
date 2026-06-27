@@ -1,9 +1,9 @@
+import base64
+import hashlib
+import hmac
+import json
 import os
 import uuid
-import hmac
-import hashlib
-import base64
-import json
 from datetime import datetime
 from typing import List, Optional
 
@@ -12,7 +12,7 @@ import jwt
 import requests
 from botocore.config import Config
 from botocore.exceptions import ClientError
-from fastapi import Depends, FastAPI, HTTPException, BackgroundTasks, Request
+from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from mangum import Mangum
@@ -994,15 +994,20 @@ def delete_transaction(
 
 # --- LINE連携 API & ヘルパー ---
 
+
 class LineLinkRequest(BaseModel):
     id_token: str
 
 
 def verify_line_signature(body: bytes, signature: str) -> bool:
     if not LINE_CHANNEL_SECRET:
-        print("WARNING: LINE_CHANNEL_SECRET is not configured. Skipping signature verification.")
+        print(
+            "WARNING: LINE_CHANNEL_SECRET is not configured. Skipping signature verification."
+        )
         return True
-    hash_val = hmac.new(LINE_CHANNEL_SECRET.encode("utf-8"), body, hashlib.sha256).digest()
+    hash_val = hmac.new(
+        LINE_CHANNEL_SECRET.encode("utf-8"), body, hashlib.sha256
+    ).digest()
     expected_signature = base64.b64encode(hash_val).decode("utf-8")
     return hmac.compare_digest(expected_signature, signature)
 
@@ -1014,17 +1019,9 @@ def line_reply_message(reply_token: str, text: str):
     url = "https://api.line.me/v2/bot/message/reply"
     headers = {
         "Content-Type": "application/json",
-        "Authorization": f"Bearer {LINE_CHANNEL_ACCESS_TOKEN}"
+        "Authorization": f"Bearer {LINE_CHANNEL_ACCESS_TOKEN}",
     }
-    payload = {
-        "replyToken": reply_token,
-        "messages": [
-            {
-                "type": "text",
-                "text": text
-            }
-        ]
-    }
+    payload = {"replyToken": reply_token, "messages": [{"type": "text", "text": text}]}
     try:
         response = requests.post(url, headers=headers, json=payload, timeout=10)
         response.raise_for_status()
@@ -1039,17 +1036,9 @@ def line_push_message(to_user_id: str, text: str):
     url = "https://api.line.me/v2/bot/message/push"
     headers = {
         "Content-Type": "application/json",
-        "Authorization": f"Bearer {LINE_CHANNEL_ACCESS_TOKEN}"
+        "Authorization": f"Bearer {LINE_CHANNEL_ACCESS_TOKEN}",
     }
-    payload = {
-        "to": to_user_id,
-        "messages": [
-            {
-                "type": "text",
-                "text": text
-            }
-        ]
-    }
+    payload = {"to": to_user_id, "messages": [{"type": "text", "text": text}]}
     try:
         response = requests.post(url, headers=headers, json=payload, timeout=10)
         response.raise_for_status()
@@ -1059,15 +1048,17 @@ def line_push_message(to_user_id: str, text: str):
 
 def link_user_rich_menu(line_user_id: str):
     if not LINE_LINKED_RICH_MENU_ID:
-        print("[LINE RICH MENU] LINE_LINKED_RICH_MENU_ID is not configured. Skipping link.")
+        print(
+            "[LINE RICH MENU] LINE_LINKED_RICH_MENU_ID is not configured. Skipping link."
+        )
         return
     if not LINE_CHANNEL_ACCESS_TOKEN:
-        print(f"[MOCK LINE RICH MENU LINK] User: {line_user_id}, RichMenu: {LINE_LINKED_RICH_MENU_ID}")
+        print(
+            f"[MOCK LINE RICH MENU LINK] User: {line_user_id}, RichMenu: {LINE_LINKED_RICH_MENU_ID}"
+        )
         return
     url = f"https://api.line.me/v2/bot/user/{line_user_id}/richmenu/{LINE_LINKED_RICH_MENU_ID}"
-    headers = {
-        "Authorization": f"Bearer {LINE_CHANNEL_ACCESS_TOKEN}"
-    }
+    headers = {"Authorization": f"Bearer {LINE_CHANNEL_ACCESS_TOKEN}"}
     try:
         response = requests.post(url, headers=headers, timeout=10)
         response.raise_for_status()
@@ -1081,13 +1072,13 @@ def unlink_user_rich_menu(line_user_id: str):
         print(f"[MOCK LINE RICH MENU UNLINK] User: {line_user_id}")
         return
     url = f"https://api.line.me/v2/bot/user/{line_user_id}/richmenu"
-    headers = {
-        "Authorization": f"Bearer {LINE_CHANNEL_ACCESS_TOKEN}"
-    }
+    headers = {"Authorization": f"Bearer {LINE_CHANNEL_ACCESS_TOKEN}"}
     try:
         response = requests.delete(url, headers=headers, timeout=10)
         response.raise_for_status()
-        print(f"[LINE RICH MENU] Successfully unlinked rich menu for user: {line_user_id}")
+        print(
+            f"[LINE RICH MENU] Successfully unlinked rich menu for user: {line_user_id}"
+        )
     except Exception as e:
         print(f"[LINE RICH MENU] Failed to unlink rich menu: {e}")
 
@@ -1097,9 +1088,7 @@ def line_get_message_content(message_id: str) -> bytes:
         print(f"[MOCK LINE GET CONTENT] Message ID: {message_id}")
         return b"dummy_image_data"
     url = f"https://api-data.line.me/v2/bot/message/{message_id}/content"
-    headers = {
-        "Authorization": f"Bearer {LINE_CHANNEL_ACCESS_TOKEN}"
-    }
+    headers = {"Authorization": f"Bearer {LINE_CHANNEL_ACCESS_TOKEN}"}
     try:
         response = requests.get(url, headers=headers, timeout=15)
         response.raise_for_status()
@@ -1121,10 +1110,7 @@ def verify_liff_id_token(id_token: str) -> Optional[str]:
         return None
 
     url = "https://api.line.me/oauth2/v2.1/verify"
-    data = {
-        "id_token": id_token,
-        "client_id": LIFF_CHANNEL_ID
-    }
+    data = {"id_token": id_token, "client_id": LIFF_CHANNEL_ID}
     try:
         response = requests.post(url, data=data, timeout=10)
         if response.status_code == 200:
@@ -1141,12 +1127,7 @@ def verify_liff_id_token(id_token: str) -> Optional[str]:
 def get_line_connection(line_user_id: str) -> Optional[str]:
     try:
         table = dynamodb.Table(TABLE_NAME)
-        response = table.get_item(
-            Key={
-                "PK": f"LINE#{line_user_id}",
-                "SK": "METADATA"
-            }
-        )
+        response = table.get_item(Key={"PK": f"LINE#{line_user_id}", "SK": "METADATA"})
         item = response.get("Item")
         if item:
             return item.get("user_id")
@@ -1160,22 +1141,26 @@ def save_line_connection(line_user_id: str, user_id: str):
     try:
         table = dynamodb.Table(TABLE_NAME)
         now = datetime.utcnow().isoformat()
-        
+
         # 1. LINE#<line_user_id> -> user_id
-        table.put_item(Item={
-            "PK": f"LINE#{line_user_id}",
-            "SK": "METADATA",
-            "user_id": user_id,
-            "linked_at": now
-        })
-        
+        table.put_item(
+            Item={
+                "PK": f"LINE#{line_user_id}",
+                "SK": "METADATA",
+                "user_id": user_id,
+                "linked_at": now,
+            }
+        )
+
         # 2. USER#<user_id> -> line_user_id
-        table.put_item(Item={
-            "PK": f"USER#{user_id}",
-            "SK": "LINE_CONNECTION",
-            "line_user_id": line_user_id,
-            "linked_at": now
-        })
+        table.put_item(
+            Item={
+                "PK": f"USER#{user_id}",
+                "SK": "LINE_CONNECTION",
+                "line_user_id": line_user_id,
+                "linked_at": now,
+            }
+        )
     except ClientError as e:
         print(f"Failed to save line connection to DynamoDB: {e}")
         raise
@@ -1185,29 +1170,16 @@ def delete_line_connection(user_id: str):
     try:
         table = dynamodb.Table(TABLE_NAME)
         response = table.get_item(
-            Key={
-                "PK": f"USER#{user_id}",
-                "SK": "LINE_CONNECTION"
-            }
+            Key={"PK": f"USER#{user_id}", "SK": "LINE_CONNECTION"}
         )
         item = response.get("Item")
         if not item:
             return
         line_user_id = item.get("line_user_id")
-        
-        table.delete_item(
-            Key={
-                "PK": f"USER#{user_id}",
-                "SK": "LINE_CONNECTION"
-            }
-        )
+
+        table.delete_item(Key={"PK": f"USER#{user_id}", "SK": "LINE_CONNECTION"})
         if line_user_id:
-            table.delete_item(
-                Key={
-                    "PK": f"LINE#{line_user_id}",
-                    "SK": "METADATA"
-                }
-            )
+            table.delete_item(Key={"PK": f"LINE#{line_user_id}", "SK": "METADATA"})
             # リッチメニューの紐付けを解除
             unlink_user_rich_menu(line_user_id)
     except ClientError as e:
@@ -1217,7 +1189,9 @@ def delete_line_connection(user_id: str):
 
 def _process_line_receipt(line_user_id: str, user_id: str, message_id: str):
     try:
-        print(f"[LINE ANALYZER] Starting analysis for user={user_id}, message_id={message_id}")
+        print(
+            f"[LINE ANALYZER] Starting analysis for user={user_id}, message_id={message_id}"
+        )
         image_bytes = line_get_message_content(message_id)
         if not image_bytes or image_bytes == b"dummy_image_data":
             # モック用の1pxダミー画像
@@ -1229,16 +1203,18 @@ def _process_line_receipt(line_user_id: str, user_id: str, message_id: str):
                 Bucket=BUCKET_NAME,
                 Key=file_key,
                 Body=image_bytes,
-                ContentType="image/jpeg"
+                ContentType="image/jpeg",
             )
             print(f"[LINE ANALYZER] Uploaded to S3: s3://{BUCKET_NAME}/{file_key}")
         except Exception as e:
             print(f"[LINE ANALYZER] Failed to upload S3: {e}")
-            line_push_message(line_user_id, "【AI解析エラー】画像のアップロードに失敗しました。")
+            line_push_message(
+                line_user_id, "【AI解析エラー】画像のアップロードに失敗しました。"
+            )
             return
 
         analysis = _analyze_receipt_image(image_bytes, "jpeg")
-        
+
         table = dynamodb.Table(TABLE_NAME)
         transaction_id = f"TX#{analysis['transaction_date']}#{uuid.uuid4()}"
         item = {
@@ -1264,6 +1240,7 @@ def _process_line_receipt(line_user_id: str, user_id: str, message_id: str):
             items_str += "...他\n"
 
         import urllib.parse
+
         encoded_tx_id = urllib.parse.quote(transaction_id)
         frontend_url = "https://d2k3otrj6e0fsp.cloudfront.net"
         edit_url = f"{frontend_url}/?edit_id={encoded_tx_id}"
@@ -1282,7 +1259,10 @@ def _process_line_receipt(line_user_id: str, user_id: str, message_id: str):
 
     except Exception as e:
         print(f"[LINE ANALYZER] Error processing receipt: {e}")
-        line_push_message(line_user_id, "【AI解析エラー】画像の解析に失敗しました。画像がブレていないか確認し、もう一度送信してください。")
+        line_push_message(
+            line_user_id,
+            "【AI解析エラー】画像の解析に失敗しました。画像がブレていないか確認し、もう一度送信してください。",
+        )
 
 
 def line_analyzer_handler(event, context):
@@ -1294,7 +1274,7 @@ def line_analyzer_handler(event, context):
     line_user_id = event.get("line_user_id")
     user_id = event.get("user_id")
     message_id = event.get("message_id")
-    
+
     if not line_user_id or not user_id or not message_id:
         print("[line_analyzer_handler] Missing required arguments.")
         return {"status": "error", "message": "Missing arguments"}
@@ -1322,7 +1302,9 @@ def link_line_account(
         link_user_rich_menu(line_user_id)
         return {"status": "success", "message": "LINE account linked successfully"}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to save connection: {e}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to save connection: {e}"
+        ) from e
 
 
 @app.get("/api/line/status")
@@ -1336,17 +1318,16 @@ def get_line_link_status(
     try:
         table = dynamodb.Table(TABLE_NAME)
         response = table.get_item(
-            Key={
-                "PK": f"USER#{user_id}",
-                "SK": "LINE_CONNECTION"
-            }
+            Key={"PK": f"USER#{user_id}", "SK": "LINE_CONNECTION"}
         )
         item = response.get("Item")
         if item:
             return {"linked": True, "line_user_id": item.get("line_user_id")}
         return {"linked": False}
     except ClientError as e:
-        raise HTTPException(status_code=500, detail="Failed to query link status")
+        raise HTTPException(
+            status_code=500, detail="Failed to query link status"
+        ) from e
 
 
 @app.delete("/api/line/link")
@@ -1361,14 +1342,11 @@ def unlink_line_account(
         delete_line_connection(user_id)
         return {"status": "success", "message": "LINE account unlinked successfully"}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to unlink: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to unlink: {e}") from e
 
 
 @app.post("/api/line/webhook")
-async def line_webhook(
-    request: Request,
-    background_tasks: BackgroundTasks
-):
+async def line_webhook(request: Request, background_tasks: BackgroundTasks):
     """
     LINE Messaging API から Webhook イベントを受信します。
     """
@@ -1382,7 +1360,7 @@ async def line_webhook(
     try:
         data = json.loads(body.decode("utf-8"))
     except Exception as e:
-        raise HTTPException(status_code=400, detail="Invalid JSON body")
+        raise HTTPException(status_code=400, detail="Invalid JSON body") from e
 
     events = data.get("events", [])
     for event in events:
@@ -1402,7 +1380,7 @@ async def line_webhook(
                     line_reply_message(
                         reply_token,
                         "【SnapKakeibo】アカウント連携が完了していません。\n"
-                        "アプリの設定画面からLINE連携を行ってください。"
+                        "アプリの設定画面からLINE連携を行ってください。",
                     )
                     continue
 
@@ -1410,19 +1388,26 @@ async def line_webhook(
                 line_reply_message(
                     reply_token,
                     "レシート画像を受信しました！\n"
-                    "AIでスキャンを実行して自動登録していますので、完了までしばらくお待ちください...⏳"
+                    "AIでスキャンを実行して自動登録していますので、完了までしばらくお待ちください...⏳",
                 )
 
                 # 非同期処理の起動
-                if os.environ.get("DYNAMODB_ENDPOINT_URL") or os.environ.get("MOCK_AUTH_ENABLED") == "true":
-                    background_tasks.add_task(_process_line_receipt, line_user_id, user_id, message_id)
+                if (
+                    os.environ.get("DYNAMODB_ENDPOINT_URL")
+                    or os.environ.get("MOCK_AUTH_ENABLED") == "true"
+                ):
+                    background_tasks.add_task(
+                        _process_line_receipt, line_user_id, user_id, message_id
+                    )
                     print("[LINE WEBHOOK] Added background task locally.")
                 else:
                     try:
                         lambda_client = boto3.client("lambda", region_name=region_name)
                         func_name = os.environ.get("AWS_LAMBDA_FUNCTION_NAME", "")
                         if "-api" in func_name:
-                            analyzer_func_name = func_name.replace("-api", "-lineAnalyzer")
+                            analyzer_func_name = func_name.replace(
+                                "-api", "-lineAnalyzer"
+                            )
                         else:
                             stage = os.environ.get("STAGE", "prod")
                             analyzer_func_name = f"snap-kakeibo-{stage}-lineAnalyzer"
@@ -1430,17 +1415,23 @@ async def line_webhook(
                         payload = {
                             "line_user_id": line_user_id,
                             "user_id": user_id,
-                            "message_id": message_id
+                            "message_id": message_id,
                         }
                         lambda_client.invoke(
                             FunctionName=analyzer_func_name,
                             InvocationType="Event",
-                            Payload=json.dumps(payload)
+                            Payload=json.dumps(payload),
                         )
-                        print(f"[LINE WEBHOOK] Invoked Lambda asynchronously: {analyzer_func_name}")
+                        print(
+                            f"[LINE WEBHOOK] Invoked Lambda asynchronously: {analyzer_func_name}"
+                        )
                     except Exception as e:
-                        print(f"[LINE WEBHOOK] Failed to invoke Lambda asynchronously: {e}")
-                        background_tasks.add_task(_process_line_receipt, line_user_id, user_id, message_id)
+                        print(
+                            f"[LINE WEBHOOK] Failed to invoke Lambda asynchronously: {e}"
+                        )
+                        background_tasks.add_task(
+                            _process_line_receipt, line_user_id, user_id, message_id
+                        )
 
     return {"status": "ok"}
 
