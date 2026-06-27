@@ -19,6 +19,10 @@ services:
       - S3_BUCKET=snap-kakeibo-receipts-dev
       - DYNAMODB_ENDPOINT_URL=http://dynamodb-local:8000
       - MOCK_AUTH_ENABLED=true
+      - LINE_CHANNEL_SECRET=dummy_secret
+      - LINE_CHANNEL_ACCESS_TOKEN=dummy_token
+      - LIFF_CHANNEL_ID=dummy_liff_channel_id
+      - LINE_LINKED_RICH_MENU_ID=dummy_rich_menu_id
     depends_on:
       - dynamodb-local
     restart: always

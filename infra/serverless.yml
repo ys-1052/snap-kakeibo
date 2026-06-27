@@ -44,6 +44,13 @@ provider:
           Resource:
             - arn:aws:bedrock:${self:provider.region}:${aws:accountId}:inference-profile/global.anthropic.claude-haiku-4-5-20251001-v1:0
             - arn:aws:bedrock:*::foundation-model/anthropic.claude-haiku-4-5-20251001-v1:0
+        # Lambda関数の呼び出し権限（非同期解析起動用）
+        - Effect: Allow
+          Action:
+            - lambda:InvokeFunction
+          Resource:
+            - arn:aws:lambda:${self:provider.region}:${aws:accountId}:function:${self:service}-${self:provider.stage}-lineAnalyzer
+
 
 package:
   patterns:
@@ -60,6 +67,19 @@ functions:
     environment:
       COGNITO_USER_POOL_ID: !Ref CognitoUserPool
       COGNITO_CLIENT_ID: !Ref CognitoUserPoolClient
+      LINE_CHANNEL_SECRET: ${ssm:/snap-kakeibo/prod/line-channel-secret, ''}
+      LINE_CHANNEL_ACCESS_TOKEN: ${ssm:/snap-kakeibo/prod/line-channel-access-token, ''}
+      LIFF_CHANNEL_ID: ${ssm:/snap-kakeibo/prod/liff-channel-id, ''}
+      LINE_LINKED_RICH_MENU_ID: ${ssm:/snap-kakeibo/prod/line-linked-rich-menu-id, ''}
+  lineAnalyzer:
+    handler: backend/main.line_analyzer_handler
+    timeout: 90 # Bedrock解析の待機を考慮して90秒に設定
+    memorySize: 512
+    environment:
+      LINE_CHANNEL_SECRET: ${ssm:/snap-kakeibo/prod/line-channel-secret, ''}
+      LINE_CHANNEL_ACCESS_TOKEN: ${ssm:/snap-kakeibo/prod/line-channel-access-token, ''}
+      LIFF_CHANNEL_ID: ${ssm:/snap-kakeibo/prod/liff-channel-id, ''}
+      LINE_LINKED_RICH_MENU_ID: ${ssm:/snap-kakeibo/prod/line-linked-rich-menu-id, ''}
   authTrigger:
     handler: backend/main.post_authentication
     timeout: 10
@@ -67,6 +87,7 @@ functions:
     environment:
       DISCORD_WEBHOOK_URL: ${ssm:/snap-kakeibo/prod/discord-webhook-url, ''}
       DISCORD_SIGNUP_WEBHOOK_URL: ${ssm:/snap-kakeibo/prod/discord-signup-webhook-url, ''}
+
 
 
 

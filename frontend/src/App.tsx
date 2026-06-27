@@ -21,7 +21,9 @@ import {
   ChevronUp,
   RefreshCw,
   Key,
+  MessageSquare,
 } from 'lucide-react';
+import liff from '@line/liff';
 import {
   AreaChart,
   Area,
@@ -340,6 +342,152 @@ export default function App() {
   // レシート原本表示ステート（スキャン後フォーム用）
   const [showScanReceiptImage, setShowScanReceiptImage] = useState(false);
 
+  // LINE連携関連ステート
+  const [isLiff, setIsLiff] = useState(false);
+  const [lineProfile, setLineProfile] = useState<any>(null);
+  const [lineLinkStatus, setLineLinkStatus] = useState<{ linked: boolean; line_user_id?: string } | null>(null);
+  const [liffLoading, setLiffLoading] = useState(false);
+  const [liffMessage, setLiffMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  // LINE LIFF初期化と状態監視
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const isLiffParam = params.get('liff') === 'true' || window.location.search.includes('liff.state');
+    const isLiffPath = window.location.pathname.includes('/liff');
+    
+    if (isLiffParam || isLiffPath) {
+      console.log('LIFF mode detected.');
+      setIsLiff(true);
+      
+      const liffId = CONFIG.LIFF_ID;
+      if (!liffId) {
+        console.warn('VITE_LIFF_ID is not configured. Running in mock LIFF mode.');
+        setLineProfile({
+          displayName: 'ローカルモックユーザー',
+          userId: 'Umock1234567890abcdef1234567890ab',
+          pictureUrl: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=150&q=80',
+        });
+        return;
+      }
+
+      setLiffLoading(true);
+      liff.init({ liffId })
+        .then(() => {
+          if (!liff.isLoggedIn()) {
+            liff.login();
+          } else {
+            return liff.getProfile();
+          }
+        })
+        .then((profile) => {
+          if (profile) {
+            setLineProfile(profile);
+          }
+        })
+        .catch((err) => {
+          console.error('LIFF initialization failed:', err);
+          setLiffMessage({ type: 'error', text: `LIFF初期化エラー: ${err.message}` });
+        })
+        .finally(() => {
+          setLiffLoading(false);
+        });
+    }
+  }, []);
+
+  const fetchLineLinkStatus = useCallback(async () => {
+    if (!token) return;
+    try {
+      const response = await fetch(`${apiUrl}/api/line/status`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setLineLinkStatus(data);
+      }
+    } catch (err) {
+      console.error('Failed to fetch LINE link status:', err);
+    }
+  }, [token, apiUrl]);
+
+  useEffect(() => {
+    if (token) {
+      fetchLineLinkStatus();
+    }
+  }, [token, fetchLineLinkStatus]);
+
+  const linkLineAccount = async () => {
+    if (!token) {
+      setLiffMessage({ type: 'error', text: '自社アカウントにログインしていません。' });
+      return;
+    }
+    
+    setLiffLoading(true);
+    setLiffMessage(null);
+    try {
+      let liffIdToken = '';
+      if (CONFIG.LIFF_ID) {
+        liffIdToken = liff.getIDToken() || '';
+      } else {
+        liffIdToken = 'Umock1234567890abcdef1234567890ab'; // モック用ダミーIDトークン
+      }
+
+      if (!liffIdToken) {
+        throw new Error('LIFF ID Token が取得できません。');
+      }
+
+      const response = await fetch(`${apiUrl}/api/line/link`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ id_token: liffIdToken }),
+      });
+
+      const resData = await response.json();
+      if (!response.ok) {
+        throw new Error(resData.detail || 'アカウント連携に失敗しました。');
+      }
+
+      setLiffMessage({ type: 'success', text: 'LINEアカウントとの連携に成功しました！🎉' });
+      await fetchLineLinkStatus();
+    } catch (err: any) {
+      setLiffMessage({ type: 'error', text: err.message });
+    } finally {
+      setLiffLoading(false);
+    }
+  };
+
+  const unlinkLineAccount = async () => {
+    if (!token) return;
+    if (!window.confirm('LINE連携を解除しますか？')) return;
+
+    setLiffLoading(true);
+    setLiffMessage(null);
+    try {
+      const response = await fetch(`${apiUrl}/api/line/link`, {
+        method: 'DELETE',
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      if (!response.ok) {
+        const resData = await response.json();
+        throw new Error(resData.detail || '連携解除に失敗しました。');
+      }
+
+      setLiffMessage({ type: 'success', text: 'LINE連携を解除しました。' });
+      setLineLinkStatus({ linked: false });
+    } catch (err: any) {
+      setLiffMessage({ type: 'error', text: err.message });
+    } finally {
+      setLiffLoading(false);
+    }
+  };
+
   // Pull-to-refresh
   useEffect(() => {
     let startY = 0;
@@ -546,6 +694,36 @@ export default function App() {
     fetchTransactions();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [apiUrl, token, cognitoClientId, refreshKey, isAuthChecking]);
+
+  // クエリパラメータに edit_id が指定されている場合、自動的に編集モーダルを開く
+  useEffect(() => {
+    if (transactions.length > 0) {
+      const params = new URLSearchParams(window.location.search);
+      const editId = params.get('edit_id');
+      if (editId) {
+        const found = transactions.find(t => t.id === editId);
+        if (found) {
+          setSelectedTransaction(found);
+          setEditData({ ...found });
+          // URLパラメータをクリーンアップして、履歴にパラメータを残さないようにする
+          const newUrl = window.location.protocol + '//' + window.location.host + window.location.pathname;
+          window.history.replaceState({ path: newUrl }, '', newUrl);
+        }
+      }
+    }
+  }, [transactions]);
+
+  // モーダルオープン時に背景（body）のスクロールをロックする
+  useEffect(() => {
+    if (selectedTransaction) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = 'unset';
+    }
+    return () => {
+      document.body.style.overflow = 'unset';
+    };
+  }, [selectedTransaction]);
 
   // SVGグラデーションを定義するために一度だけ描画するコンポーネント用
   const GradientDefs = () => (
@@ -1874,6 +2052,130 @@ export default function App() {
     );
   }
 
+  if (isLiff && token) {
+    return (
+      <div
+        className="app-container"
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          minHeight: '100vh',
+          padding: '20px',
+        }}
+      >
+        <GradientDefs />
+        <div
+          className="glass-card"
+          style={{
+            width: '100%',
+            maxWidth: '420px',
+            background: 'linear-gradient(135deg, rgba(27, 20, 52, 0.8) 0%, rgba(15, 18, 36, 0.8) 100%)',
+            border: '1px solid rgba(255, 255, 255, 0.08)',
+            boxShadow: '0 20px 50px rgba(0, 0, 0, 0.3)',
+            borderRadius: '24px',
+            padding: '40px 30px',
+            textAlign: 'center',
+          }}
+        >
+          <div style={{ marginBottom: '24px' }}>
+            <MessageSquare size={48} style={{ color: '#06C755', margin: '0 auto 16px' }} />
+            <h2 style={{ fontSize: '20px', fontWeight: '700', color: 'var(--text-light)', margin: '0 0 8px' }}>
+              LINEアカウント連携
+            </h2>
+            <p style={{ fontSize: '14px', color: 'var(--text-secondary)', margin: 0 }}>
+              {lineProfile?.displayName ? `${lineProfile.displayName} さんとしてログインしています` : 'LINEアカウントと連携します'}
+            </p>
+          </div>
+
+          {liffMessage && (
+            <div
+              style={{
+                background: liffMessage.type === 'success' ? 'rgba(6, 199, 85, 0.15)' : 'rgba(239, 68, 68, 0.15)',
+                border: `1px solid ${liffMessage.type === 'success' ? 'rgba(6, 199, 85, 0.3)' : 'rgba(239, 68, 68, 0.3)'}`,
+                borderRadius: '12px',
+                padding: '12px',
+                marginBottom: '20px',
+                fontSize: '14px',
+                color: liffMessage.type === 'success' ? '#06C755' : '#ef4444',
+                textAlign: 'left',
+              }}
+            >
+              {liffMessage.text}
+            </div>
+          )}
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            {lineLinkStatus?.linked ? (
+              <>
+                <p style={{ fontSize: '14px', color: '#06C755', fontWeight: '500', marginBottom: '16px' }}>
+                  ✓ アカウント連携が完了しています
+                </p>
+                <button
+                  onClick={() => liff.closeWindow()}
+                  className="btn-primary"
+                  style={{
+                    width: '100%',
+                    background: '#06C755',
+                    border: 'none',
+                    padding: '14px',
+                    borderRadius: '12px',
+                    marginBottom: '8px',
+                  }}
+                >
+                  閉じてLINEに戻る
+                </button>
+                <button
+                  onClick={unlinkLineAccount}
+                  className="btn-secondary"
+                  style={{
+                    width: '100%',
+                    borderColor: '#ef4444',
+                    color: '#ef4444',
+                    padding: '14px',
+                    borderRadius: '12px',
+                  }}
+                  disabled={liffLoading}
+                >
+                  {liffLoading ? '解除中...' : '連携を解除する'}
+                </button>
+              </>
+            ) : (
+              <>
+                <button
+                  onClick={linkLineAccount}
+                  className="btn-primary"
+                  style={{
+                    width: '100%',
+                    background: '#06C755',
+                    border: 'none',
+                    padding: '14px',
+                    borderRadius: '12px',
+                    boxShadow: '0 4px 12px rgba(6, 199, 85, 0.2)',
+                  }}
+                  disabled={liffLoading}
+                >
+                  {liffLoading ? '連携中...' : 'アカウントを連携する'}
+                </button>
+                <button
+                  onClick={() => liff.closeWindow()}
+                  className="btn-secondary"
+                  style={{
+                    width: '100%',
+                    padding: '14px',
+                    borderRadius: '12px',
+                  }}
+                >
+                  キャンセルして戻る
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   if (isAuthRequired && !token) {
     return (
       <div
@@ -1918,6 +2220,46 @@ export default function App() {
               borderRadius: '50%',
             }}
           />
+
+          {isLiff && (
+            <div
+              style={{
+                background: 'rgba(6, 199, 85, 0.15)',
+                border: '1px solid rgba(6, 199, 85, 0.3)',
+                borderRadius: '16px',
+                padding: '14px',
+                marginBottom: '24px',
+                textAlign: 'left',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '12px',
+              }}
+            >
+              <div
+                style={{
+                  background: '#06C755',
+                  borderRadius: '10px',
+                  width: '36px',
+                  height: '36px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flexShrink: 0,
+                  boxShadow: '0 4px 12px rgba(6, 199, 85, 0.3)',
+                }}
+              >
+                <MessageSquare size={18} color="#fff" />
+              </div>
+              <div>
+                <p style={{ fontSize: '13px', fontWeight: '700', color: '#06C755', margin: 0 }}>
+                  LINEアカウント連携中
+                </p>
+                <p style={{ fontSize: '11px', color: 'var(--text-secondary)', margin: '2px 0 0 0', lineHeight: '1.4' }}>
+                  {lineProfile ? `${lineProfile.displayName} さんと連携するために、ログインまたは新規登録を行ってください。` : 'ログイン後にアカウントの連携を完了させます。'}
+                </p>
+              </div>
+            </div>
+          )}
 
           <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '20px' }}>
             <div
@@ -4634,6 +4976,173 @@ export default function App() {
                 </button>
               </div>
             )}
+
+            {/* LINE連携設定セクション */}
+            {cognitoClientId !== 'local' && (
+              <div
+                style={{
+                  marginTop: '30px',
+                  paddingTop: '20px',
+                  borderTop: '1px solid rgba(255, 255, 255, 0.08)',
+                }}
+              >
+                <h4
+                  style={{
+                    fontSize: '15px',
+                    fontWeight: 600,
+                    marginBottom: '16px',
+                    color: 'var(--text-primary)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                  }}
+                >
+                  <MessageSquare size={18} color="#06C755" />
+                  LINEアカウント連携
+                </h4>
+
+                {liffMessage && (
+                  <div
+                    style={{
+                      background: liffMessage.type === 'success' ? 'rgba(6, 199, 85, 0.12)' : 'rgba(239, 68, 68, 0.12)',
+                      border: `1px solid ${liffMessage.type === 'success' ? 'rgba(6, 199, 85, 0.3)' : 'rgba(239, 68, 68, 0.3)'}`,
+                      color: liffMessage.type === 'success' ? '#06C755' : '#ef4444',
+                      borderRadius: '12px',
+                      padding: '12px',
+                      fontSize: '13px',
+                      marginBottom: '16px',
+                    }}
+                  >
+                    {liffMessage.text}
+                  </div>
+                )}
+
+                <div
+                  style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '12px',
+                    marginBottom: '16px',
+                  }}
+                >
+                  <div
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      padding: '8px 0',
+                    }}
+                  >
+                    <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
+                      連携ステータス
+                    </span>
+                    {lineLinkStatus === null ? (
+                      <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>確認中...</span>
+                    ) : lineLinkStatus.linked ? (
+                      <span
+                        style={{
+                          background: 'rgba(6, 199, 85, 0.15)',
+                          color: '#06C755',
+                          padding: '4px 10px',
+                          borderRadius: '20px',
+                          fontSize: '12px',
+                          fontWeight: 600,
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '6px',
+                        }}
+                      >
+                        <span
+                          style={{
+                            width: '6px',
+                            height: '6px',
+                            borderRadius: '50%',
+                            backgroundColor: '#06C755',
+                          }}
+                        ></span>
+                        連携済み
+                      </span>
+                    ) : (
+                      <span
+                        style={{
+                          background: 'rgba(255, 255, 255, 0.08)',
+                          color: 'var(--text-muted)',
+                          padding: '4px 10px',
+                          borderRadius: '20px',
+                          fontSize: '12px',
+                          fontWeight: 600,
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '6px',
+                        }}
+                      >
+                        <span
+                          style={{
+                            width: '6px',
+                            height: '6px',
+                            borderRadius: '50%',
+                            backgroundColor: 'var(--text-muted)',
+                          }}
+                        ></span>
+                        未連携
+                      </span>
+                    )}
+                  </div>
+
+                  {isLiff && (
+                    <div style={{ marginTop: '8px' }}>
+                      {lineLinkStatus?.linked ? (
+                        <button
+                          onClick={unlinkLineAccount}
+                          className="btn-secondary"
+                          style={{
+                            width: '100%',
+                            fontSize: '14px',
+                            padding: '12px 20px',
+                            borderRadius: '12px',
+                            borderColor: '#ef4444',
+                            color: '#ef4444',
+                          }}
+                          disabled={liffLoading}
+                        >
+                          {liffLoading ? '解除中...' : 'LINE連携を解除する'}
+                        </button>
+                      ) : (
+                        <button
+                          onClick={linkLineAccount}
+                          className="btn-primary"
+                          style={{
+                            width: '100%',
+                            fontSize: '14px',
+                            padding: '12px 20px',
+                            borderRadius: '12px',
+                            background: '#06C755',
+                            border: 'none',
+                            boxShadow: '0 4px 12px rgba(6, 199, 85, 0.2)',
+                          }}
+                          disabled={liffLoading}
+                        >
+                          {liffLoading ? '連携中...' : `${lineProfile?.displayName || 'LINE'} とアカウント連携する`}
+                        </button>
+                      )}
+                    </div>
+                  )}
+
+                  {!isLiff && (
+                    <p
+                      style={{
+                        fontSize: '12px',
+                        color: 'var(--text-secondary)',
+                        lineHeight: 1.4,
+                        margin: 0,
+                      }}
+                    >
+                      LINEアカウントと連携するには、LINEアプリ内の「アカウント連携」メニューから開いてください。
+                    </p>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
         )}
       </main>
@@ -4707,6 +5216,9 @@ export default function App() {
               borderRadius: '24px',
               width: '100%',
               maxWidth: '480px',
+              maxHeight: '85vh',
+              overflowY: 'auto',
+              WebkitOverflowScrolling: 'touch',
               padding: '28px 24px 24px',
               boxShadow: '0 25px 60px rgba(0, 0, 0, 0.6)',
               backdropFilter: 'blur(20px)',

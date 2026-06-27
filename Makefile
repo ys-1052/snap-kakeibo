@@ -61,6 +61,7 @@ deploy:
 	@echo VITE_API_URL=$$(aws cloudformation describe-stacks --stack-name snap-kakeibo-prod --query "Stacks[0].Outputs[?OutputKey=='ApiUrl'].OutputValue" --output text --profile $(AWS_PROFILE) --region ap-northeast-1) >> frontend/.env.production
 	@echo VITE_COGNITO_CLIENT_ID=$$(aws cloudformation describe-stacks --stack-name snap-kakeibo-prod --query "Stacks[0].Outputs[?OutputKey=='CognitoClientId'].OutputValue" --output text --profile $(AWS_PROFILE) --region ap-northeast-1) >> frontend/.env.production
 	@echo VITE_COGNITO_REGION=ap-northeast-1 >> frontend/.env.production
+	@echo VITE_LIFF_ID=$(LIFF_ID) >> frontend/.env.production
 	@echo "✨ frontend/.env.production を自動生成しました！"
 	@echo "フロントエンドをDocker環境でビルド中..."
 	docker compose run --rm frontend npm run build

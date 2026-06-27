@@ -15,4 +15,7 @@ export const CONFIG = {
 
   // AWS Cognito の配置リージョン
   COGNITO_REGION: import.meta.env.VITE_COGNITO_REGION || 'ap-northeast-1',
+
+  // LINE LIFF アプリ ID
+  LIFF_ID: import.meta.env.VITE_LIFF_ID || '',
 };

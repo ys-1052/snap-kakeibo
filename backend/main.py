@@ -1,5 +1,9 @@
 import os
 import uuid
+import hmac
+import hashlib
+import base64
+import json
 from datetime import datetime
 from typing import List, Optional
 
@@ -8,7 +12,7 @@ import jwt
 import requests
 from botocore.config import Config
 from botocore.exceptions import ClientError
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, BackgroundTasks, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from mangum import Mangum
@@ -52,6 +56,12 @@ bedrock_client = boto3.client("bedrock-runtime", region_name=region_name)
 TABLE_NAME = os.environ.get("DYNAMODB_TABLE", "snap_kakeibo_transactions")
 BUCKET_NAME = os.environ.get("S3_BUCKET", "snap-kakeibo-receipts")
 MODEL_ID = "global.anthropic.claude-haiku-4-5-20251001-v1:0"  # Claude 4.5 Haiku (Global Inference Profile)
+
+# LINE設定
+LINE_CHANNEL_SECRET = os.environ.get("LINE_CHANNEL_SECRET")
+LINE_CHANNEL_ACCESS_TOKEN = os.environ.get("LINE_CHANNEL_ACCESS_TOKEN")
+LIFF_CHANNEL_ID = os.environ.get("LIFF_CHANNEL_ID")
+LINE_LINKED_RICH_MENU_ID = os.environ.get("LINE_LINKED_RICH_MENU_ID")
 
 # Cognito認証設定
 COGNITO_USER_POOL_ID = os.environ.get("COGNITO_USER_POOL_ID")
@@ -493,69 +503,11 @@ def get_view_url(
         ) from e
 
 
-@app.post("/api/receipts/analyze", response_model=ReceiptAnalysisResult)
-def analyze_receipt(
-    payload: AnalyzeRequest,
-    current_user: dict = Depends(verify_approved_user),  # noqa: B008
-):
+def _analyze_receipt_image(image_bytes: bytes, image_format: str) -> dict:
     """
-    S3にアップロードされた画像を Amazon Bedrock (Nova Lite) で解析し、
-    JSONに構造化して返却します。
+    画像を Amazon Bedrock (Nova Lite) で解析し、JSONに構造化して辞書で返却します。
     """
-    user_id = current_user["sub"]
-    user_groups = set(current_user.get("groups", []))
-    is_admin = "Admins" in user_groups
-    is_premium = "Premium" in user_groups
-    is_lite = "Lite" in user_groups
-
-    # 管理者およびプレミアム会員以外は月間スキャン回数の制限チェックを行う
-    if not is_admin and not is_premium:
-        limit = 30 if is_lite else FREE_MONTHLY_LIMIT
-        current_month = datetime.utcnow().strftime("%Y-%m")
-        stats_sk = f"STATS#{current_month}"
-        table = dynamodb.Table(TABLE_NAME)
-        try:
-            table.update_item(
-                Key={"PK": f"USER#{user_id}", "SK": stats_sk},
-                UpdateExpression="SET scan_count = if_not_exists(scan_count, :zero) + :one",
-                ConditionExpression="attribute_not_exists(scan_count) OR scan_count < :limit",
-                ExpressionAttributeValues={":zero": 0, ":one": 1, ":limit": limit},
-            )
-        except ClientError as e:
-            if e.response["Error"]["Code"] == "ConditionalCheckFailedException":
-                raise HTTPException(
-                    status_code=403,
-                    detail="今月のAIスキャン上限に達しました。プランのアップグレードをご検討ください。",
-                ) from e
-            print(f"Error checking scan limit: {e}")
-            raise HTTPException(
-                status_code=500, detail="Database error while checking usage limits."
-            ) from e
-    # 0. Validate S3 File Key
-    # Prevent Path Traversal and Arbitrary Object Read
-    if not payload.file_key.startswith("uploads/"):
-        raise HTTPException(
-            status_code=400, detail="Invalid file_key: Must start with 'uploads/'"
-        )
-    if ".." in payload.file_key:
-        raise HTTPException(
-            status_code=400, detail="Invalid file_key: Path traversal not allowed"
-        )
-
-    # 1. S3から画像データを取得
     try:
-        response = s3_client.get_object(Bucket=BUCKET_NAME, Key=payload.file_key)
-        image_bytes = response["Body"].read()
-    except ClientError as e:
-        raise HTTPException(
-            status_code=404, detail="Uploaded image not found in S3"
-        ) from e
-
-    # 2. Bedrock (Nova Lite) を使用してマルチモーダル解析を実行
-    try:
-        file_extension = os.path.splitext(payload.file_key)[1].lower()
-        image_format = "jpeg" if file_extension in [".jpg", ".jpeg"] else "png"
-
         prompt = """
             あなたは日本語レシート画像を解析し、支出管理アプリ用のJSONを生成する専門アシスタントです。
 
@@ -778,7 +730,7 @@ def analyze_receipt(
         # JSONをパースし、Pydanticモデルでバリデーション
         try:
             analysis_result = ReceiptAnalysisResult.model_validate_json(text_output)
-            return analysis_result
+            return analysis_result.model_dump()
         except Exception as ve:
             print(f"[ERROR] Pydantic Validation Failed: {ve}")
             print(f"[ERROR] Raw AI response was: {text_output}")
@@ -836,14 +788,81 @@ def analyze_receipt(
                 return safe_result
             except Exception as je:
                 print(f"[ERROR] JSON parsing also failed: {je}")
-                raise HTTPException(
-                    status_code=500, detail="AI output validation failed"
-                ) from je
-
+                raise ValueError("AI output validation failed") from je
     except Exception as e:
+        print(f"Error during Bedrock analysis: {e}")
+        raise RuntimeError("Bedrock AI processing failed") from e
+
+
+@app.post("/api/receipts/analyze", response_model=ReceiptAnalysisResult)
+def analyze_receipt(
+    payload: AnalyzeRequest,
+    current_user: dict = Depends(verify_approved_user),  # noqa: B008
+):
+    """
+    S3にアップロードされた画像を Amazon Bedrock (Nova Lite) で解析し、
+    JSONに構造化して返却します。
+    """
+    user_id = current_user["sub"]
+    user_groups = set(current_user.get("groups", []))
+    is_admin = "Admins" in user_groups
+    is_premium = "Premium" in user_groups
+    is_lite = "Lite" in user_groups
+
+    # 管理者およびプレミアム会員以外は月間スキャン回数の制限チェックを行う
+    if not is_admin and not is_premium:
+        limit = 30 if is_lite else FREE_MONTHLY_LIMIT
+        current_month = datetime.utcnow().strftime("%Y-%m")
+        stats_sk = f"STATS#{current_month}"
+        table = dynamodb.Table(TABLE_NAME)
+        try:
+            table.update_item(
+                Key={"PK": f"USER#{user_id}", "SK": stats_sk},
+                UpdateExpression="SET scan_count = if_not_exists(scan_count, :zero) + :one",
+                ConditionExpression="attribute_not_exists(scan_count) OR scan_count < :limit",
+                ExpressionAttributeValues={":zero": 0, ":one": 1, ":limit": limit},
+            )
+        except ClientError as e:
+            if e.response["Error"]["Code"] == "ConditionalCheckFailedException":
+                raise HTTPException(
+                    status_code=403,
+                    detail="今月のAIスキャン上限に達しました。プランのアップグレードをご検討ください。",
+                ) from e
+            print(f"Error checking scan limit: {e}")
+            raise HTTPException(
+                status_code=500, detail="Database error while checking usage limits."
+            ) from e
+
+    # 0. Validate S3 File Key
+    if not payload.file_key.startswith("uploads/"):
         raise HTTPException(
-            status_code=500, detail="Bedrock AI processing failed"
+            status_code=400, detail="Invalid file_key: Must start with 'uploads/'"
+        )
+    if ".." in payload.file_key:
+        raise HTTPException(
+            status_code=400, detail="Invalid file_key: Path traversal not allowed"
+        )
+
+    # 1. S3から画像データを取得
+    try:
+        response = s3_client.get_object(Bucket=BUCKET_NAME, Key=payload.file_key)
+        image_bytes = response["Body"].read()
+    except ClientError as e:
+        raise HTTPException(
+            status_code=404, detail="Uploaded image not found in S3"
         ) from e
+
+    # 2. 解析実行
+    file_extension = os.path.splitext(payload.file_key)[1].lower()
+    image_format = "jpeg" if file_extension in [".jpg", ".jpeg"] else "png"
+
+    try:
+        result = _analyze_receipt_image(image_bytes, image_format)
+        return result
+    except ValueError as ve:
+        raise HTTPException(status_code=500, detail=str(ve)) from ve
+    except RuntimeError as re:
+        raise HTTPException(status_code=500, detail=str(re)) from re
 
 
 @app.post("/api/transactions")
@@ -971,6 +990,459 @@ def delete_transaction(
     except ClientError as e:
         msg = "Failed to delete transaction from DynamoDB"
         raise HTTPException(status_code=500, detail=msg) from e
+
+
+# --- LINE連携 API & ヘルパー ---
+
+class LineLinkRequest(BaseModel):
+    id_token: str
+
+
+def verify_line_signature(body: bytes, signature: str) -> bool:
+    if not LINE_CHANNEL_SECRET:
+        print("WARNING: LINE_CHANNEL_SECRET is not configured. Skipping signature verification.")
+        return True
+    hash_val = hmac.new(LINE_CHANNEL_SECRET.encode("utf-8"), body, hashlib.sha256).digest()
+    expected_signature = base64.b64encode(hash_val).decode("utf-8")
+    return hmac.compare_digest(expected_signature, signature)
+
+
+def line_reply_message(reply_token: str, text: str):
+    if not LINE_CHANNEL_ACCESS_TOKEN:
+        print(f"[MOCK LINE REPLY] Token: {reply_token}, Text: {text}")
+        return
+    url = "https://api.line.me/v2/bot/message/reply"
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {LINE_CHANNEL_ACCESS_TOKEN}"
+    }
+    payload = {
+        "replyToken": reply_token,
+        "messages": [
+            {
+                "type": "text",
+                "text": text
+            }
+        ]
+    }
+    try:
+        response = requests.post(url, headers=headers, json=payload, timeout=10)
+        response.raise_for_status()
+    except Exception as e:
+        print(f"Failed to reply message: {e}")
+
+
+def line_push_message(to_user_id: str, text: str):
+    if not LINE_CHANNEL_ACCESS_TOKEN:
+        print(f"[MOCK LINE PUSH] To: {to_user_id}, Text: {text}")
+        return
+    url = "https://api.line.me/v2/bot/message/push"
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {LINE_CHANNEL_ACCESS_TOKEN}"
+    }
+    payload = {
+        "to": to_user_id,
+        "messages": [
+            {
+                "type": "text",
+                "text": text
+            }
+        ]
+    }
+    try:
+        response = requests.post(url, headers=headers, json=payload, timeout=10)
+        response.raise_for_status()
+    except Exception as e:
+        print(f"Failed to push message: {e}")
+
+
+def link_user_rich_menu(line_user_id: str):
+    if not LINE_LINKED_RICH_MENU_ID:
+        print("[LINE RICH MENU] LINE_LINKED_RICH_MENU_ID is not configured. Skipping link.")
+        return
+    if not LINE_CHANNEL_ACCESS_TOKEN:
+        print(f"[MOCK LINE RICH MENU LINK] User: {line_user_id}, RichMenu: {LINE_LINKED_RICH_MENU_ID}")
+        return
+    url = f"https://api.line.me/v2/bot/user/{line_user_id}/richmenu/{LINE_LINKED_RICH_MENU_ID}"
+    headers = {
+        "Authorization": f"Bearer {LINE_CHANNEL_ACCESS_TOKEN}"
+    }
+    try:
+        response = requests.post(url, headers=headers, timeout=10)
+        response.raise_for_status()
+        print(f"[LINE RICH MENU] Successfully linked rich menu to user: {line_user_id}")
+    except Exception as e:
+        print(f"[LINE RICH MENU] Failed to link rich menu: {e}")
+
+
+def unlink_user_rich_menu(line_user_id: str):
+    if not LINE_CHANNEL_ACCESS_TOKEN:
+        print(f"[MOCK LINE RICH MENU UNLINK] User: {line_user_id}")
+        return
+    url = f"https://api.line.me/v2/bot/user/{line_user_id}/richmenu"
+    headers = {
+        "Authorization": f"Bearer {LINE_CHANNEL_ACCESS_TOKEN}"
+    }
+    try:
+        response = requests.delete(url, headers=headers, timeout=10)
+        response.raise_for_status()
+        print(f"[LINE RICH MENU] Successfully unlinked rich menu for user: {line_user_id}")
+    except Exception as e:
+        print(f"[LINE RICH MENU] Failed to unlink rich menu: {e}")
+
+
+def line_get_message_content(message_id: str) -> bytes:
+    if not LINE_CHANNEL_ACCESS_TOKEN:
+        print(f"[MOCK LINE GET CONTENT] Message ID: {message_id}")
+        return b"dummy_image_data"
+    url = f"https://api-data.line.me/v2/bot/message/{message_id}/content"
+    headers = {
+        "Authorization": f"Bearer {LINE_CHANNEL_ACCESS_TOKEN}"
+    }
+    try:
+        response = requests.get(url, headers=headers, timeout=15)
+        response.raise_for_status()
+        return response.content
+    except Exception as e:
+        print(f"Failed to get message content: {e}")
+        raise
+
+
+def verify_liff_id_token(id_token: str) -> Optional[str]:
+    if os.environ.get("MOCK_AUTH_ENABLED") == "true":
+        print(f"[MOCK LIFF VERIFY] ID Token: {id_token}")
+        if id_token.startswith("U") and len(id_token) > 10:
+            return id_token
+        return f"MOCK_LINE_USER_{id_token}"
+
+    if not LIFF_CHANNEL_ID:
+        print("Error: LIFF_CHANNEL_ID is not configured.")
+        return None
+
+    url = "https://api.line.me/oauth2/v2.1/verify"
+    data = {
+        "id_token": id_token,
+        "client_id": LIFF_CHANNEL_ID
+    }
+    try:
+        response = requests.post(url, data=data, timeout=10)
+        if response.status_code == 200:
+            res_json = response.json()
+            return res_json.get("sub")
+        else:
+            print(f"LIFF token verification failed: {response.text}")
+            return None
+    except Exception as e:
+        print(f"Error during LIFF token verification: {e}")
+        return None
+
+
+def get_line_connection(line_user_id: str) -> Optional[str]:
+    try:
+        table = dynamodb.Table(TABLE_NAME)
+        response = table.get_item(
+            Key={
+                "PK": f"LINE#{line_user_id}",
+                "SK": "METADATA"
+            }
+        )
+        item = response.get("Item")
+        if item:
+            return item.get("user_id")
+        return None
+    except ClientError as e:
+        print(f"Failed to get line connection from DynamoDB: {e}")
+        return None
+
+
+def save_line_connection(line_user_id: str, user_id: str):
+    try:
+        table = dynamodb.Table(TABLE_NAME)
+        now = datetime.utcnow().isoformat()
+        
+        # 1. LINE#<line_user_id> -> user_id
+        table.put_item(Item={
+            "PK": f"LINE#{line_user_id}",
+            "SK": "METADATA",
+            "user_id": user_id,
+            "linked_at": now
+        })
+        
+        # 2. USER#<user_id> -> line_user_id
+        table.put_item(Item={
+            "PK": f"USER#{user_id}",
+            "SK": "LINE_CONNECTION",
+            "line_user_id": line_user_id,
+            "linked_at": now
+        })
+    except ClientError as e:
+        print(f"Failed to save line connection to DynamoDB: {e}")
+        raise
+
+
+def delete_line_connection(user_id: str):
+    try:
+        table = dynamodb.Table(TABLE_NAME)
+        response = table.get_item(
+            Key={
+                "PK": f"USER#{user_id}",
+                "SK": "LINE_CONNECTION"
+            }
+        )
+        item = response.get("Item")
+        if not item:
+            return
+        line_user_id = item.get("line_user_id")
+        
+        table.delete_item(
+            Key={
+                "PK": f"USER#{user_id}",
+                "SK": "LINE_CONNECTION"
+            }
+        )
+        if line_user_id:
+            table.delete_item(
+                Key={
+                    "PK": f"LINE#{line_user_id}",
+                    "SK": "METADATA"
+                }
+            )
+            # リッチメニューの紐付けを解除
+            unlink_user_rich_menu(line_user_id)
+    except ClientError as e:
+        print(f"Failed to delete line connection from DynamoDB: {e}")
+        raise
+
+
+def _process_line_receipt(line_user_id: str, user_id: str, message_id: str):
+    try:
+        print(f"[LINE ANALYZER] Starting analysis for user={user_id}, message_id={message_id}")
+        image_bytes = line_get_message_content(message_id)
+        if not image_bytes or image_bytes == b"dummy_image_data":
+            # モック用の1pxダミー画像
+            image_bytes = b'\xff\xd8\xff\xe0\x00\x10JFIF\x00\x01\x01\x01\x00`\x00`\x00\x00\xff\xdb\x00C\x00\x08\x06\x06\x07\x06\x05\x08\x07\x07\x07\t\t\x08\n\x0c\x14\r\x0c\x0b\x0b\x0c\x19\x12\x13\x0f\x14\x1d\x1a\x1f\x1e\x1d\x1a\x1c\x1c $.\x27" "#\x1c\x1c(7),01444\x1f\x27`27/;%2-3\xff\xc0\x00\x0b\x08\x00\x01\x00\x01\x01\x01\x11\x00\xff\xc4\x00\x1f\x00\x00\x01\x05\x01\x01\x01\x01\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x01\x02\x03\x04\x05\x06\x07\x08\t\n\x0b\xff\xda\x00\x08\x01\x01\x00\x00?\x00\xbf\x00\xff\xd9'
+
+        file_key = f"receipts/{user_id}/line/{message_id}.jpg"
+        try:
+            s3_client.put_object(
+                Bucket=BUCKET_NAME,
+                Key=file_key,
+                Body=image_bytes,
+                ContentType="image/jpeg"
+            )
+            print(f"[LINE ANALYZER] Uploaded to S3: s3://{BUCKET_NAME}/{file_key}")
+        except Exception as e:
+            print(f"[LINE ANALYZER] Failed to upload S3: {e}")
+            line_push_message(line_user_id, "【AI解析エラー】画像のアップロードに失敗しました。")
+            return
+
+        analysis = _analyze_receipt_image(image_bytes, "jpeg")
+        
+        table = dynamodb.Table(TABLE_NAME)
+        transaction_id = f"TX#{analysis['transaction_date']}#{uuid.uuid4()}"
+        item = {
+            "PK": f"USER#{user_id}",
+            "SK": transaction_id,
+            "transaction_date": analysis["transaction_date"],
+            "shop_name": analysis["shop_name"],
+            "total_amount": analysis["total_amount"],
+            "category_name": analysis["category_name"],
+            "items": analysis.get("items", []),
+            "tax_summary": analysis.get("tax_summary", []),
+            "receipt_s3_key": file_key,
+            "memo": "LINEアップロードによる自動登録",
+            "created_at": datetime.utcnow().isoformat(),
+        }
+        table.put_item(Item=item)
+        print(f"[LINE ANALYZER] Saved transaction to DynamoDB: {transaction_id}")
+
+        items_str = ""
+        for it in analysis.get("items", [])[:5]:
+            items_str += f"・{it.get('name')} ({it.get('price')}円)\n"
+        if len(analysis.get("items", [])) > 5:
+            items_str += "...他\n"
+
+        import urllib.parse
+        encoded_tx_id = urllib.parse.quote(transaction_id)
+        frontend_url = "https://d2k3otrj6e0fsp.cloudfront.net"
+        edit_url = f"{frontend_url}/?edit_id={encoded_tx_id}"
+
+        success_msg = (
+            f"【AI解析完了】\n"
+            f"家計簿に支出を登録しました！🎉\n\n"
+            f"📅 日付: {analysis['transaction_date']}\n"
+            f"🏢 店舗: {analysis['shop_name']}\n"
+            f"💰 合計: {analysis['total_amount']:,}円\n"
+            f"🏷️ カテゴリ: {analysis['category_name']}\n\n"
+            f"品目:\n{items_str}\n"
+            f"📝 修正・確認はこちら：\n{edit_url}"
+        )
+        line_push_message(line_user_id, success_msg)
+
+    except Exception as e:
+        print(f"[LINE ANALYZER] Error processing receipt: {e}")
+        line_push_message(line_user_id, "【AI解析エラー】画像の解析に失敗しました。画像がブレていないか確認し、もう一度送信してください。")
+
+
+def line_analyzer_handler(event, context):
+    """
+    AWS Lambda用の非同期解析ハンドラー。
+    Webhook用のLambdaから非同期に呼び出されます。
+    """
+    print(f"[line_analyzer_handler] Event received: {event}")
+    line_user_id = event.get("line_user_id")
+    user_id = event.get("user_id")
+    message_id = event.get("message_id")
+    
+    if not line_user_id or not user_id or not message_id:
+        print("[line_analyzer_handler] Missing required arguments.")
+        return {"status": "error", "message": "Missing arguments"}
+
+    _process_line_receipt(line_user_id, user_id, message_id)
+    return {"status": "success"}
+
+
+@app.post("/api/line/link")
+def link_line_account(
+    payload: LineLinkRequest,
+    current_user: dict = Depends(verify_approved_user),  # noqa: B008
+):
+    """
+    LIFFから送信されたLINE IDトークンを検証し、LINE userIdと現在ログイン中のCognitoユーザーを紐付けます。
+    """
+    user_id = current_user["sub"]
+    line_user_id = verify_liff_id_token(payload.id_token)
+    if not line_user_id:
+        raise HTTPException(status_code=400, detail="Invalid LIFF ID Token")
+
+    try:
+        save_line_connection(line_user_id, user_id)
+        # 連携完了時にリッチメニューを切り替え
+        link_user_rich_menu(line_user_id)
+        return {"status": "success", "message": "LINE account linked successfully"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to save connection: {e}")
+
+
+@app.get("/api/line/status")
+def get_line_link_status(
+    current_user: dict = Depends(verify_approved_user),  # noqa: B008
+):
+    """
+    現在のユーザーのLINE連携状況を返します。
+    """
+    user_id = current_user["sub"]
+    try:
+        table = dynamodb.Table(TABLE_NAME)
+        response = table.get_item(
+            Key={
+                "PK": f"USER#{user_id}",
+                "SK": "LINE_CONNECTION"
+            }
+        )
+        item = response.get("Item")
+        if item:
+            return {"linked": True, "line_user_id": item.get("line_user_id")}
+        return {"linked": False}
+    except ClientError as e:
+        raise HTTPException(status_code=500, detail="Failed to query link status")
+
+
+@app.delete("/api/line/link")
+def unlink_line_account(
+    current_user: dict = Depends(verify_approved_user),  # noqa: B008
+):
+    """
+    現在のユーザーのLINE連携を解除します。
+    """
+    user_id = current_user["sub"]
+    try:
+        delete_line_connection(user_id)
+        return {"status": "success", "message": "LINE account unlinked successfully"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to unlink: {e}")
+
+
+@app.post("/api/line/webhook")
+async def line_webhook(
+    request: Request,
+    background_tasks: BackgroundTasks
+):
+    """
+    LINE Messaging API から Webhook イベントを受信します。
+    """
+    body = await request.body()
+    signature = request.headers.get("X-Line-Signature", "")
+
+    # 署名検証
+    if not verify_line_signature(body, signature):
+        raise HTTPException(status_code=400, detail="Invalid signature")
+
+    try:
+        data = json.loads(body.decode("utf-8"))
+    except Exception as e:
+        raise HTTPException(status_code=400, detail="Invalid JSON body")
+
+    events = data.get("events", [])
+    for event in events:
+        if event.get("type") == "message":
+            msg = event.get("message", {})
+            if msg.get("type") == "image":
+                line_user_id = event.get("source", {}).get("userId")
+                message_id = msg.get("id")
+                reply_token = event.get("replyToken")
+
+                if not line_user_id or not message_id:
+                    continue
+
+                # 連携確認
+                user_id = get_line_connection(line_user_id)
+                if not user_id:
+                    line_reply_message(
+                        reply_token,
+                        "【SnapKakeibo】アカウント連携が完了していません。\n"
+                        "アプリの設定画面からLINE連携を行ってください。"
+                    )
+                    continue
+
+                # 連携済みの場合、即座に「解析中」とリプライを返す
+                line_reply_message(
+                    reply_token,
+                    "レシート画像を受信しました！\n"
+                    "AIでスキャンを実行して自動登録していますので、完了までしばらくお待ちください...⏳"
+                )
+
+                # 非同期処理の起動
+                if os.environ.get("DYNAMODB_ENDPOINT_URL") or os.environ.get("MOCK_AUTH_ENABLED") == "true":
+                    background_tasks.add_task(_process_line_receipt, line_user_id, user_id, message_id)
+                    print("[LINE WEBHOOK] Added background task locally.")
+                else:
+                    try:
+                        lambda_client = boto3.client("lambda", region_name=region_name)
+                        func_name = os.environ.get("AWS_LAMBDA_FUNCTION_NAME", "")
+                        if "-api" in func_name:
+                            analyzer_func_name = func_name.replace("-api", "-lineAnalyzer")
+                        else:
+                            stage = os.environ.get("STAGE", "prod")
+                            analyzer_func_name = f"snap-kakeibo-{stage}-lineAnalyzer"
+
+                        payload = {
+                            "line_user_id": line_user_id,
+                            "user_id": user_id,
+                            "message_id": message_id
+                        }
+                        lambda_client.invoke(
+                            FunctionName=analyzer_func_name,
+                            InvocationType="Event",
+                            Payload=json.dumps(payload)
+                        )
+                        print(f"[LINE WEBHOOK] Invoked Lambda asynchronously: {analyzer_func_name}")
+                    except Exception as e:
+                        print(f"[LINE WEBHOOK] Failed to invoke Lambda asynchronously: {e}")
+                        background_tasks.add_task(_process_line_receipt, line_user_id, user_id, message_id)
+
+    return {"status": "ok"}
 
 
 # AWS Lambda用のハンドラー
