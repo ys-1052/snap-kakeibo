@@ -7,11 +7,13 @@ SnapKakeibo は、レシート画像をマルチモーダルAIで解析し、日
 ## 🚀 主要機能 (Key Features)
 
 1. **マルチモーダルAIによる高精度解析**: Amazon Bedrock 上の **Claude 4.5 Haiku** に直接レシート画像を送信し、品目ごとの単価や数量、消費税区分にいたる詳細情報を構造化されたJSONとして高精度に自動抽出します。
-2. **セキュアなユーザー認証とパスキー（WebAuthn）対応**: AWS Cognito を利用したログイン機構を搭載し、パスキー登録・認証による安全なサインインをサポート。Amplifyなどの大規模ライブラリを使わず、軽量なJSON RPC 1.1 APIの直接通信による独自実装を採用。サイレントリフレッシュやトークン取り消し（Revocation）も完備しています。
-3. **Discordログイン通知機能**: Cognito Post-Authenticationトリガーにより、ユーザーログイン成功時にIPアドレスやデバイス環境情報をDiscordへWebhookで通知するセキュリティ監視機能を搭載しています。
-4. **レスポンシブかつ洗練されたすりガラスUI**: ダークモードや美しいグラデーション、アニメーションに加え、モバイル端末向けに最適化された入力フォーム（タップターゲットの拡大、iOSでの日付入力はみ出し防止）、レシート画像のプレビュー切り替え機能を搭載しています。
-5. **柔軟な家計簿データ管理**: AIによる自動解析に加えて手動での追加・編集・削除が可能。予算カテゴリを全12種類（食費、日用品、交際費、交通費、エンタメ、医療・健康、衣服・美容、水道・光熱、通信・家賃、自己投資・教育、貯蓄・投資、その他）に拡張し、実用性を高めています。
-6. **ローカルクリーン開発環境**: Docker Compose環境による完全ローカルクローズド開発を提供。ホスト環境を汚さずにすべてのサービスを検証可能です。
+2. **LINE公式アカウント連携＆自動スキャン**: LINEのトークルームにレシート画像を直接送信するだけで、裏側でAIによる非同期解析が走り、購入品目の内訳（単価・個数・税率）と店舗名・金額を一覧にした解析結果をトークに自動で返信・即時登録します。
+3. **LINE LIFF（LINEブラウザ）サインイン連携**: LINE Front-end Framework (LIFF) を用いて、既存のCognito家計簿アカウントとLINEユーザーを安全にワンタップで紐付け可能。LINEから即座にWebアプリを呼び出して家計簿の確認・編集が行えます。
+4. **セキュアなユーザー認証とパスキー（WebAuthn）対応**: AWS Cognito を利用したログイン機構を搭載し、パスキー登録・認証による安全なサインインをサポート。Amplifyなどの大規模ライブラリを使わず、軽量なJSON RPC 1.1 APIの直接通信による独自実装を採用。サイレントリフレッシュやトークン取り消し（Revocation）も完備しています。
+5. **Discordログイン通知機能**: Cognito Post-Authenticationトリガーにより、ユーザーログイン成功時にIPアドレスやデバイス環境情報をDiscordへWebhookで通知するセキュリティ監視機能を搭載しています。
+6. **レスポンシブかつ洗練されたすりガラスUI**: ダークモードや美しいグラデーション、アニメーションに加え、モバイル端末向けに最適化された入力フォーム（アコーディオン式の品目編集カード、タップターゲットの拡大、iOSでの日付入力はみ出し防止）、レシート画像のプレビュー切り替え機能を搭載しています。
+7. **柔軟な家計簿データ管理**: AIによる自動解析に加えて手動での追加・編集・削除が可能。予算カテゴリを全12種類（食費、日用品、交際費、交通費、エンタメ、医療・健康、衣服・美容、水道・光熱、通信・家賃、自己投資・教育、貯蓄・投資、その他）に拡張し、実用性を高めています。
+8. **ローカルクリーン開発環境**: Docker Compose環境による完全ローカルクローズド開発を提供。ホスト環境を汚さずにすべてのサービスを検証可能です。
 
 ---
 
@@ -23,6 +25,7 @@ SnapKakeibo は、レシート画像をマルチモーダルAIで解析し、日
 - **Recharts 2.15** (日別支出エリア/ラインチャート、カテゴリ別支出円グラフ)
 - **Lucide React** (アイコンシステム)
 - **Cognito WebAuthnクライアント** (JSON RPC 1.1 APIによる独自実装)
+- **LINE LIFF SDK (`@line/liff`)** (LINEアプリ内ブラウザからのシームレスな認証連携)
 
 ### バックエンド (backend/)
 - **Python 3.12 + FastAPI + Mangum** (Uvicorn)
@@ -30,12 +33,13 @@ SnapKakeibo は、レシート画像をマルチモーダルAIで解析し、日
 - **PyJWT & Cryptography** (Cognitoトークン検証・デコード用)
 - **Ruff** (Linter/Formatter)
 
-### インフラ・デプロイ
+### インフラ・デプロイ・外部連携
 - **Serverless Framework 4** (AWSリソースの自動プロビジョニング)
-- **Amazon S3** (レシート画像の格納、Presigned URL経由での直接アップロード)
+- **Amazon S3** (レシート画像の格納、Presigned URL経由での直接アップロード、LINE Bot画像ストレージ)
 - **Amazon DynamoDB** (PK: `user_id`, SK: `transaction_id` によるNoSQLデータベース)
 - **Amazon Cognito** (サインイン認証、パスキー認証、Post-Authentication通知トリガー)
 - **Amazon Bedrock** (マルチモーダルAI `global.anthropic.claude-haiku-4-5-20251001-v1:0` による構造化データ抽出)
+- **LINE Messaging API** (LINE公式アカウントのWebhookレシート受信＆自動解析通知メッセージ)
 
 ---
 
@@ -103,19 +107,21 @@ Reactの **「設定(Settings)」タブ** の「AWS Lambda Function URL」欄に
 
 ```
 snap-kakeibo/
-├── backend/                  # 🐍 Pythonバックエンド (AWS Lambda API / Cognitoトリガー)
-│   ├── main.py               # メインAPIロジック & Cognitoトリガーハンドラー (FastAPI)
+├── backend/                  # 🐍 Pythonバックエンド (AWS Lambda API / Cognitoトリガー / LINE Webhook)
+│   ├── main.py               # メインAPIロジック、非同期LINEレシート解析、Cognitoトリガーハンドラー (FastAPI)
 │   └── requirements.txt      # 依存ライブラリ
 ├── frontend/                 # ⚛️ Reactフロントエンド (Vite SPA)
 │   ├── src/
-│   │   ├── App.tsx           # アプリケーションのメイン画面・ステート
+│   │   ├── App.tsx           # アプリケーションのメイン画面・ステート、LIFF連携
 │   │   ├── cognito.ts        # Cognito WebAuthn統合用軽量クライアント
-│   │   ├── index.css         # スタイリング (すりガラス・モバイル最適化・アニメーション)
+│   │   ├── index.css         # スタイリング (すりガラス・モバイル最適化アコーディオン・アニメーション)
 │   │   └── main.tsx          # エントリーポイント
 │   └── package.json          # プロジェクト依存関係とスクリプト
 ├── infra/                    # 🚀 インフラ・デプロイ定義 (Serverless IaC)
 │   ├── requirements.txt      # backend/requirements.txt へのシンボリックリンク
 │   └── serverless.yml        # Serverless Framework構成ファイル
+├── line_assets/              # 💬 LINE公式アカウント用のアセット（リッチメニュー背景等）
+├── create_rich_menus.py      # ⚙️ LINEサインイン状態に応じたリッチメニュー登録用スクリプト
 ├── docker-compose.yml        # 🐳 ローカル開発環境の構成定義
 ├── Makefile                  # 🛠️ 開発・運用自動化用のメイクファイル
 └── README.md                 # 📄 本説明書 (本ファイル)
