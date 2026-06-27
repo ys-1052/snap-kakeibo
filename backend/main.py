@@ -478,9 +478,10 @@ def get_view_url(
     S3に保存されているレシート画像を表示するための署名付きGET URLを生成します。
     """
     # Path Traversalや不正なファイル読み込みを防ぐためのバリデーション
-    if not file_key.startswith("uploads/"):
+    if not (file_key.startswith("uploads/") or file_key.startswith("receipts/")):
         raise HTTPException(
-            status_code=400, detail="Invalid file_key: Must start with 'uploads/'"
+            status_code=400,
+            detail="Invalid file_key: Must start with 'uploads/' or 'receipts/'",
         )
     if ".." in file_key:
         raise HTTPException(

@@ -932,8 +932,10 @@ export default function App() {
         // スキャンカウントやトランザクション一覧を最新化するためリフレッシュを実行
         setRefreshKey(prev => prev + 1);
       } catch (err: any) {
-        alert(`エラーが発生したため、デモモードのAI解析に切り替えます: ${err.message}`);
-        runDemoScan();
+        console.error('Scan error:', err);
+        alert(
+          `レシートの解析に失敗しました: ${err.message}\n\n画像が鮮明に写っているか確認してもう一度試すか、手動で登録してください。`
+        );
       } finally {
         setIsScanning(false);
       }
@@ -3865,24 +3867,36 @@ export default function App() {
                     </p>
                   </div>
                 ) : (
-                  <div style={{ display: 'flex', gap: '12px', marginTop: '24px' }}>
+                  <div style={{ display: 'flex', gap: '10px', marginTop: '20px' }}>
                     <button
                       onClick={() => {
                         setSelectedFile(null);
                         setPreviewUrl(null);
                       }}
                       className="btn-secondary"
-                      style={{ flex: 1 }}
+                      style={{
+                        flex: 1,
+                        padding: '12px 16px',
+                        fontSize: '14px',
+                      }}
                     >
                       やり直す
                     </button>
                     <button
                       onClick={triggerScan}
                       className="btn-primary"
-                      style={{ flex: 2, position: 'relative' }}
+                      style={{
+                        flex: 2,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '6px',
+                        padding: '12px 16px',
+                        fontSize: '14px',
+                      }}
                     >
-                      <Sparkles size={18} style={{ position: 'absolute', left: '20px' }} />
-                      AIスキャンを開始
+                      <Sparkles size={16} />
+                      スキャン開始
                     </button>
                   </div>
                 )}
@@ -5530,9 +5544,10 @@ export default function App() {
                           <div
                             style={{
                               display: 'flex',
-                              gap: '8px',
+                              gap: '6px',
                               alignItems: 'center',
                               justifyContent: 'space-between',
+                              flexWrap: 'wrap',
                             }}
                           >
                             <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
@@ -5544,39 +5559,39 @@ export default function App() {
                                 value={item.price === 0 ? '' : item.price}
                                 onChange={e => handleItemChange(index, 'price', e.target.value)}
                                 style={{
-                                  width: '85px',
+                                  width: '64px',
                                   background: 'transparent',
                                   border: 'none',
                                   borderBottom: '1px solid rgba(255,255,255,0.1)',
                                   color: '#fff',
-                                  fontSize: '16px',
+                                  fontSize: '15px',
                                   outline: 'none',
                                   textAlign: 'right',
                                   padding: '6px 0',
                                 }}
                               />
                             </div>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
                               <button
                                 onClick={() => handleQtyAdjust(index, -1)}
                                 style={{
                                   background: 'rgba(255,255,255,0.05)',
                                   border: 'none',
                                   borderRadius: '6px',
-                                  width: '34px',
-                                  height: '34px',
+                                  width: '30px',
+                                  height: '30px',
                                   color: '#fff',
                                   display: 'flex',
                                   alignItems: 'center',
                                   justifyContent: 'center',
-                                  fontSize: '16px',
+                                  fontSize: '15px',
                                   cursor: 'pointer',
                                 }}
                               >
                                 -
                               </button>
                               <span
-                                style={{ fontSize: '15px', minWidth: '24px', textAlign: 'center' }}
+                                style={{ fontSize: '14px', minWidth: '20px', textAlign: 'center' }}
                                 className="numeric"
                               >
                                 {item.qty}
@@ -5587,13 +5602,13 @@ export default function App() {
                                   background: 'rgba(255,255,255,0.05)',
                                   border: 'none',
                                   borderRadius: '6px',
-                                  width: '34px',
-                                  height: '34px',
+                                  width: '30px',
+                                  height: '30px',
                                   color: '#fff',
                                   display: 'flex',
                                   alignItems: 'center',
                                   justifyContent: 'center',
-                                  fontSize: '16px',
+                                  fontSize: '15px',
                                   cursor: 'pointer',
                                 }}
                               >
@@ -5612,11 +5627,13 @@ export default function App() {
                                 border: 'none',
                                 borderRadius: '6px',
                                 color: '#fff',
-                                fontSize: '14px',
-                                padding: '6px 8px',
-                                height: '34px',
+                                fontSize: '13px',
+                                padding: '4px 6px',
+                                height: '30px',
                                 cursor: 'pointer',
                                 outline: 'none',
+                                flex: 1,
+                                minWidth: '70px',
                               }}
                             >
                               <option value="8-ex" style={{ background: '#131520' }}>
@@ -5770,15 +5787,15 @@ export default function App() {
                 </div>
 
                 {/* 操作ボタン */}
-                <div style={{ display: 'flex', gap: '10px', marginTop: '8px' }}>
+                <div style={{ display: 'flex', gap: '10px', marginTop: '12px' }}>
                   <button
                     onClick={handleUpdateTransaction}
                     className="btn-primary"
                     style={{
-                      flex: 2,
+                      flex: 1,
                       borderRadius: '16px',
-                      padding: '16px',
-                      fontSize: '15px',
+                      padding: '12px 16px',
+                      fontSize: '14px',
                       fontWeight: 600,
                       cursor: 'pointer',
                       display: 'flex',
@@ -5787,7 +5804,7 @@ export default function App() {
                       gap: '6px',
                     }}
                   >
-                    <Check size={18} />
+                    <Check size={16} />
                     保存する
                   </button>
                   <button
@@ -5800,8 +5817,8 @@ export default function App() {
                       border: '1px solid rgba(239, 68, 68, 0.25)',
                       borderRadius: '16px',
                       color: '#f87171',
-                      padding: '16px',
-                      fontSize: '15px',
+                      padding: '12px 16px',
+                      fontSize: '14px',
                       fontWeight: 600,
                       cursor: 'pointer',
                       display: 'flex',
@@ -5819,24 +5836,8 @@ export default function App() {
                       e.currentTarget.style.borderColor = 'rgba(239, 68, 68, 0.25)';
                     }}
                   >
-                    <Trash2 size={18} />
-                    削除
-                  </button>
-                  <button
-                    onClick={() => {
-                      setSelectedTransaction(null);
-                      setEditData(null);
-                    }}
-                    className="btn-secondary"
-                    style={{
-                      flex: 1,
-                      borderRadius: '16px',
-                      padding: '16px',
-                      fontSize: '15px',
-                      whiteSpace: 'nowrap',
-                    }}
-                  >
-                    閉じる
+                    <Trash2 size={16} />
+                    削除する
                   </button>
                 </div>
               </div>
