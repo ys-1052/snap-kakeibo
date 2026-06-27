@@ -1221,11 +1221,11 @@ export default function App() {
   const handleAddItem = () => {
     if (!editData) return;
     const updatedItems = [
-      ...(editData.items || []),
       { name: '', price: 0, qty: 1, tax_rate: 8, tax_included: false, tax_marker: '※' },
+      ...(editData.items || []),
     ];
     updateItemsAndTotal(updatedItems);
-    setExpandedItemIdx(updatedItems.length - 1);
+    setExpandedItemIdx(0);
   };
 
   // 品目の削除
@@ -4125,11 +4125,10 @@ export default function App() {
 
                             {/* アコーディオンボディ */}
                             <div className={`accordion-body ${isExpanded ? 'open' : ''}`}>
-                              {/* 1行目: 品目名と削除ボタン */}
+                              {/* 1行目: 品目名 */}
                               <div
                                 style={{
                                   display: 'flex',
-                                  gap: '8px',
                                   width: '100%',
                                   alignItems: 'center',
                                   marginBottom: '8px',
@@ -4142,53 +4141,22 @@ export default function App() {
                                   value={item.name}
                                   onChange={e => handleItemChange(idx, 'name', e.target.value)}
                                   style={{
-                                    flex: 1,
+                                    width: '100%',
                                     height: '44px',
                                     fontSize: '15px',
                                     fontWeight: 500,
                                   }}
                                 />
-                                <button
-                                  type="button"
-                                  onClick={() => handleRemoveItem(idx)}
-                                  style={{
-                                    background: 'rgba(239, 68, 68, 0.08)',
-                                    border: '1px solid rgba(239, 68, 68, 0.15)',
-                                    borderRadius: '12px',
-                                    width: '44px',
-                                    height: '44px',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    color: '#f87171',
-                                    cursor: 'pointer',
-                                    transition: 'all 0.2s ease',
-                                    flexShrink: 0,
-                                  }}
-                                  onMouseEnter={e => {
-                                    e.currentTarget.style.background = 'rgba(239, 68, 68, 0.15)';
-                                    e.currentTarget.style.borderColor = 'rgba(239, 68, 68, 0.3)';
-                                    e.currentTarget.style.color = '#ef4444';
-                                  }}
-                                  onMouseLeave={e => {
-                                    e.currentTarget.style.background = 'rgba(239, 68, 68, 0.08)';
-                                    e.currentTarget.style.borderColor = 'rgba(239, 68, 68, 0.15)';
-                                    e.currentTarget.style.color = '#f87171';
-                                  }}
-                                >
-                                  <Trash2 size={16} />
-                                </button>
                               </div>
 
                               {/* 2行目: 単価、数量ステッパー、税区分 */}
                               <div
                                 style={{
                                   display: 'flex',
-                                  gap: '6px',
+                                  gap: '4px',
                                   width: '100%',
                                   alignItems: 'center',
                                   justifyContent: 'space-between',
-                                  flexWrap: 'nowrap',
                                 }}
                               >
                                 {/* 単価入力 */}
@@ -4196,18 +4164,18 @@ export default function App() {
                                   style={{
                                     display: 'flex',
                                     alignItems: 'center',
-                                    gap: '4px',
-                                    flex: 1.2,
-                                    minWidth: '75px',
+                                    gap: '2px',
+                                    flex: 1.1,
+                                    minWidth: '60px',
                                     position: 'relative',
                                   }}
                                 >
                                   <span
                                     style={{
-                                      fontSize: '11px',
+                                      fontSize: '10px',
                                       color: 'var(--text-muted)',
                                       position: 'absolute',
-                                      left: '8px',
+                                      left: '6px',
                                     }}
                                   >
                                     ¥
@@ -4221,10 +4189,10 @@ export default function App() {
                                     onChange={e => handleItemChange(idx, 'price', e.target.value)}
                                     style={{
                                       width: '100%',
-                                      height: '44px',
-                                      paddingLeft: '18px',
-                                      paddingRight: '6px',
-                                      fontSize: '15px',
+                                      height: '38px',
+                                      paddingLeft: '14px',
+                                      paddingRight: '4px',
+                                      fontSize: '14px',
                                       textAlign: 'right',
                                     }}
                                   />
@@ -4234,15 +4202,23 @@ export default function App() {
                                 <div
                                   className="stepper-container"
                                   style={{
-                                    flex: 1.1,
-                                    minWidth: '94px',
+                                    width: '88px',
+                                    minWidth: '88px',
                                     justifyContent: 'space-between',
+                                    height: '38px',
+                                    padding: '2px',
                                   }}
                                 >
                                   <button
                                     type="button"
                                     className="stepper-btn"
                                     onClick={() => handleQtyAdjust(idx, -1)}
+                                    style={{
+                                      width: '28px',
+                                      height: '32px',
+                                      fontSize: '16px',
+                                      borderRadius: '8px',
+                                    }}
                                   >
                                     -
                                   </button>
@@ -4253,11 +4229,18 @@ export default function App() {
                                     placeholder="数"
                                     value={item.qty || ''}
                                     onChange={e => handleItemChange(idx, 'qty', e.target.value)}
+                                    style={{ width: '24px', height: '32px', fontSize: '14px' }}
                                   />
                                   <button
                                     type="button"
                                     className="stepper-btn"
                                     onClick={() => handleQtyAdjust(idx, 1)}
+                                    style={{
+                                      width: '28px',
+                                      height: '32px',
+                                      fontSize: '16px',
+                                      borderRadius: '8px',
+                                    }}
                                   >
                                     +
                                   </button>
@@ -4280,10 +4263,10 @@ export default function App() {
                                   className="premium-input"
                                   style={{
                                     flex: 1.2,
-                                    minWidth: '85px',
-                                    height: '44px',
-                                    fontSize: '13px',
-                                    padding: '4px 6px',
+                                    minWidth: '70px',
+                                    height: '38px',
+                                    fontSize: '12px',
+                                    padding: '2px 4px',
                                     color: 'var(--text-primary)',
                                     cursor: 'pointer',
                                   }}
@@ -5481,8 +5464,6 @@ export default function App() {
                   </div>
                   <div
                     style={{
-                      maxHeight: '180px',
-                      overflowY: 'auto',
                       background: 'rgba(0,0,0,0.18)',
                       borderRadius: '16px',
                       border: '1px solid rgba(255,255,255,0.02)',
@@ -5493,168 +5474,297 @@ export default function App() {
                     }}
                   >
                     {editData.items &&
-                      editData.items.map((item, index) => (
-                        <div
-                          key={index}
-                          style={{
-                            background: 'rgba(255,255,255,0.01)',
-                            border: '1px solid rgba(255,255,255,0.03)',
-                            borderRadius: '12px',
-                            padding: '12px',
-                            display: 'flex',
-                            flexDirection: 'column',
-                            gap: '10px',
-                          }}
-                        >
-                          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                            <input
-                              type="text"
-                              placeholder="品目名"
-                              value={item.name || ''}
-                              onChange={e => handleItemChange(index, 'name', e.target.value)}
-                              style={{
-                                flex: 1,
-                                background: 'transparent',
-                                border: 'none',
-                                borderBottom: '1px solid rgba(255,255,255,0.1)',
-                                color: '#fff',
-                                fontSize: '16px',
-                                outline: 'none',
-                                padding: '8px 0',
-                              }}
-                            />
-                            <button
-                              onClick={() => handleRemoveItem(index)}
-                              style={{
-                                background: 'rgba(239, 68, 68, 0.08)',
-                                border: 'none',
-                                borderRadius: '8px',
-                                width: '36px',
-                                height: '36px',
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                color: '#f87171',
-                                cursor: 'pointer',
-                              }}
-                            >
-                              <Trash2 size={16} />
-                            </button>
-                          </div>
+                      editData.items.map((item, index) => {
+                        const isExpanded = expandedItemIdx === index;
+                        const subtotal = (item.price || 0) * (item.qty || 1);
+                        return (
                           <div
-                            style={{
-                              display: 'flex',
-                              gap: '6px',
-                              alignItems: 'center',
-                              justifyContent: 'space-between',
-                              flexWrap: 'wrap',
-                            }}
+                            key={index}
+                            className="ios-item-card"
+                            style={{ padding: '12px 14px' }}
                           >
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                              <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-                                単価
-                              </span>
-                              <input
-                                type="number"
-                                value={item.price === 0 ? '' : item.price}
-                                onChange={e => handleItemChange(index, 'price', e.target.value)}
-                                style={{
-                                  width: '64px',
-                                  background: 'transparent',
-                                  border: 'none',
-                                  borderBottom: '1px solid rgba(255,255,255,0.1)',
-                                  color: '#fff',
-                                  fontSize: '15px',
-                                  outline: 'none',
-                                  textAlign: 'right',
-                                  padding: '6px 0',
-                                }}
-                              />
-                            </div>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                              <button
-                                onClick={() => handleQtyAdjust(index, -1)}
-                                style={{
-                                  background: 'rgba(255,255,255,0.05)',
-                                  border: 'none',
-                                  borderRadius: '6px',
-                                  width: '30px',
-                                  height: '30px',
-                                  color: '#fff',
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  justifyContent: 'center',
-                                  fontSize: '15px',
-                                  cursor: 'pointer',
-                                }}
-                              >
-                                -
-                              </button>
-                              <span
-                                style={{ fontSize: '14px', minWidth: '20px', textAlign: 'center' }}
-                                className="numeric"
-                              >
-                                {item.qty}
-                              </span>
-                              <button
-                                onClick={() => handleQtyAdjust(index, 1)}
-                                style={{
-                                  background: 'rgba(255,255,255,0.05)',
-                                  border: 'none',
-                                  borderRadius: '6px',
-                                  width: '30px',
-                                  height: '30px',
-                                  color: '#fff',
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  justifyContent: 'center',
-                                  fontSize: '15px',
-                                  cursor: 'pointer',
-                                }}
-                              >
-                                +
-                              </button>
-                            </div>
-                            <select
-                              value={
-                                item.tax_rate === null
-                                  ? 'free'
-                                  : `${item.tax_rate}-${item.tax_included ? 'in' : 'ex'}`
-                              }
-                              onChange={e => handleTaxChange(index, e.target.value)}
-                              style={{
-                                background: 'rgba(255,255,255,0.05)',
-                                border: 'none',
-                                borderRadius: '6px',
-                                color: '#fff',
-                                fontSize: '13px',
-                                padding: '4px 6px',
-                                height: '30px',
-                                cursor: 'pointer',
-                                outline: 'none',
-                                flex: 1,
-                                minWidth: '70px',
-                              }}
+                            {/* アコーディオンヘッダー（クリックで開閉） */}
+                            <div
+                              className="accordion-header"
+                              onClick={() => setExpandedItemIdx(isExpanded ? null : index)}
+                              style={{ gap: '12px' }}
                             >
-                              <option value="8-ex" style={{ background: '#131520' }}>
-                                8%外税
-                              </option>
-                              <option value="8-in" style={{ background: '#131520' }}>
-                                8%内税
-                              </option>
-                              <option value="10-ex" style={{ background: '#131520' }}>
-                                10%外税
-                              </option>
-                              <option value="10-in" style={{ background: '#131520' }}>
-                                10%内税
-                              </option>
-                              <option value="free" style={{ background: '#131520' }}>
-                                非課税
-                              </option>
-                            </select>
+                              <div
+                                style={{
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '8px',
+                                  flex: 1,
+                                  minWidth: 0,
+                                }}
+                              >
+                                <span
+                                  style={{
+                                    fontSize: '14px',
+                                    fontWeight: 600,
+                                    color: '#fff',
+                                    overflow: 'hidden',
+                                    textOverflow: 'ellipsis',
+                                    whiteSpace: 'nowrap',
+                                    flex: '0 1 auto',
+                                  }}
+                                >
+                                  {item.name || '品目未入力'}
+                                </span>
+                                <span className="tax-badge">
+                                  {item.tax_rate ? `${item.tax_rate}%` : '免税'}
+                                </span>
+                              </div>
+
+                              <div
+                                style={{
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '12px',
+                                  flexShrink: 0,
+                                }}
+                              >
+                                <div style={{ textAlign: 'right' }}>
+                                  <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
+                                    ¥{item.price || 0} × {item.qty || 1}
+                                  </div>
+                                  <div
+                                    className="numeric"
+                                    style={{
+                                      fontSize: '14px',
+                                      fontWeight: 700,
+                                      color: 'var(--text-primary)',
+                                    }}
+                                  >
+                                    ¥{subtotal.toLocaleString()}
+                                  </div>
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={e => {
+                                    e.stopPropagation();
+                                    handleRemoveItem(index);
+                                  }}
+                                  style={{
+                                    background: 'rgba(239, 68, 68, 0.08)',
+                                    border: '1px solid rgba(239, 68, 68, 0.15)',
+                                    borderRadius: '8px',
+                                    width: '40px',
+                                    height: '36px',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    color: '#f87171',
+                                    cursor: 'pointer',
+                                    transition: 'all 0.2s ease',
+                                    padding: 0,
+                                  }}
+                                  onMouseEnter={e => {
+                                    e.currentTarget.style.background = 'rgba(239, 68, 68, 0.15)';
+                                    e.currentTarget.style.borderColor = 'rgba(239, 68, 68, 0.3)';
+                                    e.currentTarget.style.color = '#ef4444';
+                                  }}
+                                  onMouseLeave={e => {
+                                    e.currentTarget.style.background = 'rgba(239, 68, 68, 0.08)';
+                                    e.currentTarget.style.borderColor = 'rgba(239, 68, 68, 0.15)';
+                                    e.currentTarget.style.color = '#f87171';
+                                  }}
+                                  title="この品目を削除"
+                                >
+                                  <Trash2 size={16} />
+                                </button>
+                                {isExpanded ? (
+                                  <ChevronUp size={16} color="var(--text-secondary)" />
+                                ) : (
+                                  <ChevronDown size={16} color="var(--text-secondary)" />
+                                )}
+                              </div>
+                            </div>
+
+                            {/* アコーディオンボディ */}
+                            <div className={`accordion-body ${isExpanded ? 'open' : ''}`}>
+                              {/* 1行目: 品目名 */}
+                              <div
+                                style={{
+                                  display: 'flex',
+                                  width: '100%',
+                                  alignItems: 'center',
+                                  marginBottom: '8px',
+                                }}
+                              >
+                                <input
+                                  type="text"
+                                  className="premium-input"
+                                  placeholder="品目名（例：牛乳）"
+                                  value={item.name}
+                                  onChange={e => handleItemChange(index, 'name', e.target.value)}
+                                  style={{
+                                    width: '100%',
+                                    height: '44px',
+                                    fontSize: '15px',
+                                    fontWeight: 500,
+                                  }}
+                                />
+                              </div>
+
+                              {/* 2行目: 単価、数量ステッパー、税区分 */}
+                              <div
+                                style={{
+                                  display: 'flex',
+                                  gap: '4px',
+                                  width: '100%',
+                                  alignItems: 'center',
+                                  justifyContent: 'space-between',
+                                }}
+                              >
+                                {/* 単価入力 */}
+                                <div
+                                  style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '2px',
+                                    flex: 1.1,
+                                    minWidth: '60px',
+                                    position: 'relative',
+                                  }}
+                                >
+                                  <span
+                                    style={{
+                                      fontSize: '10px',
+                                      color: 'var(--text-muted)',
+                                      position: 'absolute',
+                                      left: '6px',
+                                    }}
+                                  >
+                                    ¥
+                                  </span>
+                                  <input
+                                    type="text"
+                                    inputMode="numeric"
+                                    className="premium-input numeric"
+                                    placeholder="単価"
+                                    value={item.price === 0 ? '' : item.price}
+                                    onChange={e => handleItemChange(index, 'price', e.target.value)}
+                                    style={{
+                                      width: '100%',
+                                      height: '38px',
+                                      paddingLeft: '14px',
+                                      paddingRight: '4px',
+                                      fontSize: '14px',
+                                      textAlign: 'right',
+                                    }}
+                                  />
+                                </div>
+
+                                {/* 数量入力（ステッパー） */}
+                                <div
+                                  className="stepper-container"
+                                  style={{
+                                    width: '88px',
+                                    minWidth: '88px',
+                                    justifyContent: 'space-between',
+                                    height: '38px',
+                                    padding: '2px',
+                                  }}
+                                >
+                                  <button
+                                    type="button"
+                                    className="stepper-btn"
+                                    onClick={() => handleQtyAdjust(index, -1)}
+                                    style={{
+                                      width: '28px',
+                                      height: '32px',
+                                      fontSize: '16px',
+                                      borderRadius: '8px',
+                                    }}
+                                  >
+                                    -
+                                  </button>
+                                  <input
+                                    type="text"
+                                    inputMode="numeric"
+                                    className="stepper-input"
+                                    placeholder="数"
+                                    value={item.qty || ''}
+                                    onChange={e => handleItemChange(index, 'qty', e.target.value)}
+                                    style={{ width: '24px', height: '32px', fontSize: '14px' }}
+                                  />
+                                  <button
+                                    type="button"
+                                    className="stepper-btn"
+                                    onClick={() => handleQtyAdjust(index, 1)}
+                                    style={{
+                                      width: '28px',
+                                      height: '32px',
+                                      fontSize: '16px',
+                                      borderRadius: '8px',
+                                    }}
+                                  >
+                                    +
+                                  </button>
+                                </div>
+
+                                {/* 税区分・税率選択 */}
+                                <select
+                                  value={
+                                    item.tax_rate === 8
+                                      ? item.tax_included
+                                        ? '8-in'
+                                        : '8-ex'
+                                      : item.tax_rate === 10
+                                        ? item.tax_included
+                                          ? '10-in'
+                                          : '10-ex'
+                                        : 'free'
+                                  }
+                                  onChange={e => handleTaxChange(index, e.target.value)}
+                                  className="premium-input"
+                                  style={{
+                                    flex: 1.2,
+                                    minWidth: '70px',
+                                    height: '38px',
+                                    fontSize: '12px',
+                                    padding: '2px 4px',
+                                    color: 'var(--text-primary)',
+                                    cursor: 'pointer',
+                                  }}
+                                >
+                                  <option
+                                    value="8-ex"
+                                    style={{ background: 'var(--bg-card)', color: '#fff' }}
+                                  >
+                                    8% (外)
+                                  </option>
+                                  <option
+                                    value="8-in"
+                                    style={{ background: 'var(--bg-card)', color: '#fff' }}
+                                  >
+                                    8% (内)
+                                  </option>
+                                  <option
+                                    value="10-ex"
+                                    style={{ background: 'var(--bg-card)', color: '#fff' }}
+                                  >
+                                    10% (外)
+                                  </option>
+                                  <option
+                                    value="10-in"
+                                    style={{ background: 'var(--bg-card)', color: '#fff' }}
+                                  >
+                                    10% (内)
+                                  </option>
+                                  <option
+                                    value="free"
+                                    style={{ background: 'var(--bg-card)', color: '#fff' }}
+                                  >
+                                    免税
+                                  </option>
+                                </select>
+                              </div>
+                            </div>
                           </div>
-                        </div>
-                      ))}
+                        );
+                      })}
                     {(!editData.items || editData.items.length === 0) && (
                       <p
                         style={{
